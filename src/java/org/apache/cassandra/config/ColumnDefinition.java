@@ -73,14 +73,14 @@ public class ColumnDefinition
     private IndexType indexType;
     private Map<String,String> indexOptions;
     private String indexName;
-    public final Type type;
+    public Type type;
 
     /*
      * If the column comparator is a composite type, indicates to which
      * component this definition refers to. If null, the definition refers to
      * the full column name.
      */
-    public final Integer componentIndex;
+    public Integer componentIndex;
 
     public static ColumnDefinition partitionKeyDef(ByteBuffer name, AbstractType<?> validator, Integer componentIndex)
     {
@@ -278,7 +278,7 @@ public class ColumnDefinition
 
     public void apply(ColumnDefinition def, AbstractType<?> comparator)  throws ConfigurationException
     {
-        assert type == def.type && Objects.equal(componentIndex, def.componentIndex);
+//        assert type == def.type && Objects.equal(componentIndex, def.componentIndex);
 
         if (getIndexType() != null && def.getIndexType() != null)
         {
@@ -295,6 +295,8 @@ public class ColumnDefinition
         setValidator(def.getValidator());
         setIndexType(def.getIndexType(), def.getIndexOptions());
         setIndexName(def.getIndexName());
+        componentIndex = def.componentIndex;
+        type = def.type;
     }
 
     /**

@@ -24,6 +24,7 @@ import static org.junit.Assert.assertNotNull;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -38,6 +39,7 @@ import org.apache.cassandra.OrderedJUnit4ClassRunner;
 import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.config.KSMetaData;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -49,7 +51,6 @@ import org.apache.cassandra.db.RowMutation;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.marshal.BytesType;
-import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTableReader;
@@ -57,10 +58,11 @@ import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.thrift.CqlResult;
 import org.apache.cassandra.thrift.SlicePredicate;
 import org.apache.cassandra.thrift.ThriftValidation;
 import org.apache.cassandra.utils.ByteBufferUtil;
-import org.junit.AfterClass;
+import org.apache.cassandra.utils.FBUtilities;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -68,25 +70,21 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @RunWith(OrderedJUnit4ClassRunner.class)
-public class MoveSSTableTest
+public class MoveSSTableTest extends CqlTestBase
 {
 	private static Logger logger = LoggerFactory.getLogger(SchemaLoader.class);
-    private static final String ks1 = "Keyspace1";
-    private static final String cfName1 = "table1_copy";
-    private static final String cfName2 = "table1";
+    
+    @BeforeClass
+    public static void setup() throws IOException {
+    	startCassandra();
+    }
 	
-	@BeforeClass
-	public static void loadSchema() throws Exception {
-		SchemaLoader.cleanupAndLeaveDirs();
+	@Test
+	public void testMoveSSTablesBetweenDifferentColumnFamilies() throws Exception {
+	    final String ks1 = "TestKeyspace1";
+	    final String cfName1 = "table1_copy";
+	    final String cfName2 = "table1";
 		
-		Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler()
-		{
-			public void uncaughtException(Thread t, Throwable e)
-			{
-				logger.error("Fatal exception in thread " + t, e);
-			}
-		});
-	  	SchemaLoader.startGossiper();
 	  	List<KSMetaData> schema = new ArrayList<KSMetaData>();
 
         // A whole bucket of shorthand
@@ -101,15 +99,7 @@ public class MoveSSTableTest
         for (KSMetaData ksm : schema) {
         	MigrationManager.announceNewKeyspace(ksm);	
         }
-	}
-	
-	@AfterClass
-	public static void stopGossiper() {
-		Gossiper.instance.stop();
-	}
-	
-	@Test
-	public void testMoveSSTablesBetweenDifferentColumnFamilies() throws Exception {
+		
 		Keyspace keyspace = Keyspace.open(ks1);
 		ColumnFamilyStore cfs1 = keyspace.getColumnFamilyStore(cfName1);
 		cfs1.truncateBlocking();
@@ -160,7 +150,7 @@ public class MoveSSTableTest
 		ColumnFamily cf = cfs1.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("key-cf1-1"), cfName1, System.currentTimeMillis()));
 		assertNotNull(cf);
 		
-		moveSSTablesFromDifferentCF(keyspace, cfs1, cfs2);
+		moveSSTablesFromDifferentCFAndRemovePreviousSSTables(keyspace, cfs1, cfs2);
 		
 		cfs1.reload();
 		rows1 = cfs1.getRangeSlice(Util.range("", ""),
@@ -181,10 +171,99 @@ public class MoveSSTableTest
                 true,
                 false);
 		assertEquals(100, rows2.size());
-		logger.info("Testing logger functionality");
+	}
+	
+	@Test
+	public void testMigrateColumnFamilyDefinitionToUseNewPartitonKey() throws Exception {
+        String ksName = "testkeyspace";
+        String[] cfName = {"cf0", "cf1"};
+		
+		executeCql3Statement("CREATE KEYSPACE " + ksName + " WITH replication = {'class':'SimpleStrategy', 'replication_factor':1};");
+		executeCql3Statement("CREATE TABLE " + ksName + "." + cfName[0] + " ( col0 varchar PRIMARY KEY, col1 varchar);");
+		executeCql3Statement("CREATE TABLE " + ksName + "." + cfName[1] + " ( col0 varchar, col1 varchar PRIMARY KEY);");
+		
+        Keyspace ks = Keyspace.open(ksName);
+        ColumnFamilyStore cfs0 = ks.getColumnFamilyStore(cfName[0]);
+        ColumnFamilyStore cfs1 = ks.getColumnFamilyStore(cfName[1]);
+
+        for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < 100; j++) {
+            	executeCql3Statement(String.format("INSERT INTO " + ksName + "." + cfName[i] + " (col0, col1) VALUES ('cf%d-col0-%03d', 'cf%d-col1-%03d');", i, j, i, j));
+            }        	
+        }
+        
+        CqlResult selectCf0 = executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[0] + ";");
+        assertEquals(100, selectCf0.rows.size());
+        
+        CqlResult selectCf1 = executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[1] + ";");
+        assertEquals(100, selectCf1.rows.size());
+        
+        // Flush Memtables out to SSTables
+        cfs0.forceBlockingFlush();
+        cfs1.forceBlockingFlush();
+        
+        for (int i = 0; i < 100; i++) {
+        	String query = "SELECT * FROM " + ksName + "." + cfName[0] + String.format(" WHERE col0 = 'cf0-col0-%03d';", i);
+        	logger.info("Executing query {}", query);
+        	selectCf0 = executeCql3Statement(query);
+        	assertEquals(1,  selectCf0.rows.size());
+        }
+        
+        moveSSTablesFromDifferentCFAndRemovePreviousSSTables(ks, cfs0, cfs1);
+        migrateColumnFamilyDefinitionToUseNewPartitonKey(ksName, cfName[1], "col0");
+        
+        cfs0.reload();
+        cfs1.reload();
+        
+        selectCf0 = executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[0] + ";");
+        assertEquals(0, selectCf0.rows.size());
+        
+        selectCf1 = executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[1] + ";");
+        assertEquals(100, selectCf1.rows.size());
+        
+        for (int i = 0; i < 100; i++) {
+        	String query = "SELECT * FROM " + ksName + "." + cfName[1] + String.format(" WHERE col0 = 'cf0-col0-%03d';", i);
+        	logger.info("Executing query {}", query);
+        	selectCf1 = executeCql3Statement(query);
+        	assertEquals(1,  selectCf1.rows.size());
+        }
+	}
+	
+	public static void migrateColumnFamilyDefinitionToUseNewPartitonKey(String keyspaceName, String columnFamilyName, String newPartitionKeyName) {
+        Keyspace keyspace = Keyspace.open(keyspaceName);
+        ColumnFamilyStore cfs = keyspace.getColumnFamilyStore(columnFamilyName);
+        CFMetaData meta = cfs.metadata.clone();
+
+        logger.debug("Migrating CFMetaData : {} with new partition key {}", meta, newPartitionKeyName);
+        ColumnDefinition newRegularColumn = null;
+        ColumnDefinition newPartitionKeyColumn = null;
+        for (ColumnDefinition columnDefinition : meta.allColumns()) {
+            try {
+                String deserializedColumnName = ByteBufferUtil.string(columnDefinition.name);
+                logger.debug("ColumnDefinition for column {} : {}", deserializedColumnName, columnDefinition);
+                if (columnDefinition.type == ColumnDefinition.Type.PARTITION_KEY) {
+                	// Change old partiton key to regular column
+                    newRegularColumn = new ColumnDefinition(columnDefinition.name, columnDefinition.getValidator(), 0, ColumnDefinition.Type.REGULAR);
+                } else if (deserializedColumnName.equals(newPartitionKeyName)) {
+                	// Change old regular column that matches newPartitionKeyName to new PartitonKey 
+                    newPartitionKeyColumn = new ColumnDefinition(columnDefinition.name, columnDefinition.getValidator(), null, ColumnDefinition.Type.PARTITION_KEY);
+                }
+            } catch (CharacterCodingException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        assert newRegularColumn != null;
+        assert newPartitionKeyColumn != null;
+        meta.addOrReplaceColumnDefinition(newPartitionKeyColumn);
+        meta.addOrReplaceColumnDefinition(newRegularColumn);
+
+        CFMetaData oldMeta = cfs.metadata;
+        RowMutation rm = edu.dprg.morphous.Util.invokePrivateMethodWithReflection(MigrationManager.instance, "addSerializedKeyspace", oldMeta.toSchemaUpdate(meta, FBUtilities.timestampMicros(), false), keyspaceName);
+        edu.dprg.morphous.Util.invokePrivateMethodWithReflection(MigrationManager.instance, "announce", rm);
+//        MigrationManager.announce(MigrationManager.addSerializedKeyspace(oldMeta.toSchemaUpdate(meta, FBUtilities.timestampMicros(), false), keyspaceName));
 	}
 
-	private void moveSSTablesFromDifferentCF(Keyspace keyspace, ColumnFamilyStore from,
+	public static void moveSSTablesFromDifferentCFAndRemovePreviousSSTables(Keyspace keyspace, ColumnFamilyStore from,
 			ColumnFamilyStore to) {
 		Directories originalDirectories = Directories.create(keyspace.getName(), from.name);
 		Directories destDirectory = Directories.create(keyspace.getName(), to.name);
