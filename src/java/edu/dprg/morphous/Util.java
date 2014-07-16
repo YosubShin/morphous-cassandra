@@ -14,6 +14,8 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.primitives.Primitives;
+
 public class Util {
 	private static Logger logger = LoggerFactory.getLogger(SchemaLoader.class);
 
@@ -51,7 +53,7 @@ public class Util {
 
 	@SuppressWarnings("unchecked")
 	public static <T> T invokePrivateMethodWithReflection(Object object, String methodName, Object... parameters) {
-		Method method;
+		Method method = null;
 		T result;
 		try {
 			List<Class<?>> parameterTypes = new ArrayList<>();
@@ -61,7 +63,27 @@ public class Util {
 				}				
 			}
 			
-			method = object.getClass().getDeclaredMethod(methodName, parameterTypes.toArray(new Class<?>[]{}));
+			
+			try {
+				method = object.getClass().getDeclaredMethod(methodName, parameterTypes.toArray(new Class<?>[]{}));	
+			} catch(NoSuchMethodException e) {
+				outerloop:
+				for (Method curMethod : object.getClass().getDeclaredMethods()) {
+					if (curMethod.getName().equals(methodName) && parameterTypes.size() == curMethod.getParameterTypes().length) {
+						for (int i = 0; i < parameterTypes.size(); i++) {
+							if (!parameterTypes.get(i).equals(Primitives.wrap(curMethod.getParameterTypes()[i]))) {
+								continue outerloop; 
+							}
+						}
+						method = curMethod;
+						break;
+					}
+				}
+				if (method == null) {
+					throw e;
+				}
+			}
+			
 			method.setAccessible(true);
 			result = (T) method.invoke(object, parameters);
 		} catch (InvocationTargetException e) {

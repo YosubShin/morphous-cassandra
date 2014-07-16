@@ -72,7 +72,7 @@ import org.slf4j.LoggerFactory;
 @RunWith(OrderedJUnit4ClassRunner.class)
 public class MoveSSTableTest extends CqlTestBase
 {
-	private static Logger logger = LoggerFactory.getLogger(SchemaLoader.class);
+	private static Logger logger = LoggerFactory.getLogger(MoveSSTableTest.class);
     
     @BeforeClass
     public static void setup() throws IOException {
