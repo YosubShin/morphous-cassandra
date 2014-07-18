@@ -41,6 +41,8 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import edu.uiuc.dprg.morphous.Util;
+
 public class DataTransferTest extends CqlTestBase {
 	private static Logger logger = LoggerFactory.getLogger(DataTransferTest.class);
     

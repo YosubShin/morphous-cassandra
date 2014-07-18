@@ -34,6 +34,8 @@ import javax.management.ObjectName;
 import com.google.common.base.Function;
 import com.google.common.collect.Lists;
 
+import edu.uiuc.dprg.morphous.MessageSender.MorphousTask;
+
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -125,6 +127,7 @@ public final class MessagingService implements MessagingServiceMBean
         UNUSED_1,
         UNUSED_2,
         UNUSED_3,
+        MORPHOUS_TASK,
         ;
     }
 
@@ -174,6 +177,8 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.UNUSED_1, Stage.INTERNAL_RESPONSE);
         put(Verb.UNUSED_2, Stage.INTERNAL_RESPONSE);
         put(Verb.UNUSED_3, Stage.INTERNAL_RESPONSE);
+        
+        put(Verb.MORPHOUS_TASK, Stage.MORPHOUS_TASK);
     }};
 
     /**
@@ -209,6 +214,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.PAXOS_PREPARE, Commit.serializer);
         put(Verb.PAXOS_PROPOSE, Commit.serializer);
         put(Verb.PAXOS_COMMIT, Commit.serializer);
+        put(Verb.MORPHOUS_TASK, MorphousTask.serializer);
     }};
 
     /**
@@ -232,6 +238,7 @@ public final class MessagingService implements MessagingServiceMBean
 
         put(Verb.PAXOS_PREPARE, PrepareResponse.serializer);
         put(Verb.PAXOS_PROPOSE, BooleanSerializer.serializer);
+        put(Verb.MORPHOUS_TASK, MorphousTask.serializer);
     }};
 
     /* This records all the results mapped by message Id */
@@ -592,7 +599,9 @@ public final class MessagingService implements MessagingServiceMBean
      */
     public int sendRR(MessageOut message, InetAddress to, IAsyncCallback cb, long timeout)
     {
+    	logger.debug("addCallback");
         int id = addCallback(cb, message, to, timeout);
+        logger.debug("SendOneWay");
         sendOneWay(message, id, to);
         return id;
     }
@@ -701,6 +710,7 @@ public final class MessagingService implements MessagingServiceMBean
 
     public void receive(MessageIn message, int id, long timestamp)
     {
+    	logger.debug("message received : {}", message);
         TraceState state = Tracing.instance.initializeFromMessage(message);
         if (state != null)
             state.trace("Message received from {}", message.from);

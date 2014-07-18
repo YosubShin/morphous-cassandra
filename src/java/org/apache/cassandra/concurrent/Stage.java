@@ -29,7 +29,8 @@ public enum Stage
     TRACING,
     INTERNAL_RESPONSE,
     READ_REPAIR,
-    REPLICATE_ON_WRITE;
+    REPLICATE_ON_WRITE,
+    MORPHOUS_TASK;
 
     public String getJmxType()
     {
@@ -41,6 +42,7 @@ public enum Stage
             case MISC:
             case TRACING:
             case INTERNAL_RESPONSE:
+            case MORPHOUS_TASK:
                 return "internal";
             case MUTATION:
             case READ:

@@ -926,6 +926,10 @@ public class NodeProbe
     {
          return ssProxy.getLoggingLevels();
     }
+
+    public void runMorphous(String keyspace, String[] columnFamilies, String morphousOptions) {
+        ssProxy.runMorphous(keyspace, columnFamilies, morphousOptions);
+    }
 }
 
 class ColumnFamilyStoreMBeanIterator implements Iterator<Map.Entry<String, ColumnFamilyStoreMBean>>

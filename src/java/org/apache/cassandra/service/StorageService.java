@@ -29,6 +29,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+
 import javax.management.MBeanServer;
 import javax.management.Notification;
 import javax.management.NotificationBroadcasterSupport;
@@ -42,13 +43,14 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.Uninterruptibles;
 
+import edu.uiuc.dprg.morphous.Morphous;
+
 import org.apache.cassandra.cql3.CQL3Type;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import org.apache.cassandra.auth.Auth;
 import org.apache.cassandra.concurrent.DebuggableScheduledThreadPoolExecutor;
 import org.apache.cassandra.concurrent.Stage;
@@ -255,6 +257,8 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.SNAPSHOT, new SnapshotVerbHandler());
         MessagingService.instance().registerVerbHandlers(MessagingService.Verb.ECHO, new EchoVerbHandler());
+        
+        MessagingService.instance().registerVerbHandlers(MessagingService.Verb.MORPHOUS_TASK, new EchoVerbHandler());
     }
 
     public void registerDaemon(CassandraDaemon daemon)
@@ -3973,5 +3977,18 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
     public void setTombstoneFailureThreshold(int threshold)
     {
         DatabaseDescriptor.setTombstoneFailureThreshold(threshold);
+    }
+    
+    @Override
+    public void runMorphous(String keyspace, String[] columnFamilies, String morphousOptions) {
+        logger.debug("Running Morphous... This is the starting point for the Cassandra Reconfiguration project! keyspace:{}, columnFamilies:{}, morphousOptions:{}",
+                keyspace, columnFamilies, morphousOptions);
+        if (columnFamilies == null || columnFamilies.length > 1) {
+            throw new IllegalArgumentException("Only one column family is allowed for Morphous");
+        }
+
+        Morphous.MorphousConfiguration morphousConfiguration = Morphous.instance().parseMorphousConfiguration(morphousOptions);
+        Morphous.instance().configuration = morphousConfiguration;
+        new Thread(Morphous.instance().createMorphousTask(keyspace, columnFamilies[0], morphousConfiguration)).start();
     }
 }

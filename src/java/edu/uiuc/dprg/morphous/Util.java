@@ -1,4 +1,4 @@
-package edu.dprg.morphous;
+package edu.uiuc.dprg.morphous;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;

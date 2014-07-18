@@ -81,6 +81,7 @@ public class NodeCmd
     private static final Pair<String, String> RESOLVE_IP = Pair.create("r", "resolve-ip");
     private static final Pair<String, String> SCRUB_SKIP_CORRUPTED_OPT = Pair.create("s", "skip-corrupted");
     private static final Pair<String, String> COMPACT_OPT = Pair.create("c", "compact");
+    private static final Pair<String, String> MORPHOUS_OPT = Pair.create("m", "morphous");
 
     private static final String DEFAULT_HOST = "127.0.0.1";
     private static final int DEFAULT_PORT = 7199;
@@ -111,6 +112,7 @@ public class NodeCmd
         options.addOption(RESOLVE_IP, false, "show node domain names instead of IPs");
         options.addOption(SCRUB_SKIP_CORRUPTED_OPT, false, "when scrubbing counter tables, skip corrupted rows");
         options.addOption(COMPACT_OPT, false, "print histograms in a more compact format");
+        options.addOption(MORPHOUS_OPT, true, "Run Morphous with configuration JSON string");
     }
 
     public NodeCmd(NodeProbe probe)
@@ -189,7 +191,8 @@ public class NodeCmd
         SETCACHEKEYSTOSAVE,
         RELOADTRIGGERS,
         SETLOGGINGLEVEL,
-        GETLOGGINGLEVELS
+        GETLOGGINGLEVELS,
+        MORPHOUS
     }
 
 
@@ -1363,6 +1366,7 @@ public class NodeCmd
                 case UPGRADESSTABLES   :
                 case DISABLEAUTOCOMPACTION:
                 case ENABLEAUTOCOMPACTION:
+                case MORPHOUS :
                     optionalKSandCFs(command, cmd, arguments, probe);
                     break;
 
@@ -1463,7 +1467,6 @@ public class NodeCmd
                 case GETLOGGINGLEVELS :
                     nodeCmd.getLoggingLevels(System.out);
                     break;
-
                 default :
                     throw new RuntimeException("Unreachable code.");
             }
@@ -1699,6 +1702,10 @@ public class NodeCmd
                     break;
                 case DISABLEAUTOCOMPACTION:
                     probe.disableAutoCompaction(keyspace, columnFamilies);
+                    break;
+                case MORPHOUS:
+                    String morphousOptions = cmd.getOptionValue(MORPHOUS_OPT.left);
+                    probe.runMorphous(keyspace, columnFamilies, morphousOptions);
                     break;
                 default:
                     throw new RuntimeException("Unreachable code.");

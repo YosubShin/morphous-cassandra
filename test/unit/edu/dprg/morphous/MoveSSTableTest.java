@@ -258,8 +258,8 @@ public class MoveSSTableTest extends CqlTestBase
         meta.addOrReplaceColumnDefinition(newRegularColumn);
 
         CFMetaData oldMeta = cfs.metadata;
-        RowMutation rm = edu.dprg.morphous.Util.invokePrivateMethodWithReflection(MigrationManager.instance, "addSerializedKeyspace", oldMeta.toSchemaUpdate(meta, FBUtilities.timestampMicros(), false), keyspaceName);
-        edu.dprg.morphous.Util.invokePrivateMethodWithReflection(MigrationManager.instance, "announce", rm);
+        RowMutation rm = edu.uiuc.dprg.morphous.Util.invokePrivateMethodWithReflection(MigrationManager.instance, "addSerializedKeyspace", oldMeta.toSchemaUpdate(meta, FBUtilities.timestampMicros(), false), keyspaceName);
+        edu.uiuc.dprg.morphous.Util.invokePrivateMethodWithReflection(MigrationManager.instance, "announce", rm);
 //        MigrationManager.announce(MigrationManager.addSerializedKeyspace(oldMeta.toSchemaUpdate(meta, FBUtilities.timestampMicros(), false), keyspaceName));
 	}
 
@@ -276,7 +276,7 @@ public class MoveSSTableTest extends CqlTestBase
 					destDirectory.getDirectoryForNewSSTables(),
 					keyspace.getName(),
 					to.name,
-					((AtomicInteger) edu.dprg.morphous.Util.getPrivateFieldWithReflection(to, "fileIndexGenerator")).incrementAndGet(), 
+					((AtomicInteger) edu.uiuc.dprg.morphous.Util.getPrivateFieldWithReflection(to, "fileIndexGenerator")).incrementAndGet(), 
 					false);
 			logger.debug("Moving SSTable {} to {}", srcDescriptor.directory, destDescriptor.directory);
 			for (Component component : entry.getValue()) {
@@ -293,7 +293,7 @@ public class MoveSSTableTest extends CqlTestBase
 		
 		// Remove SSTable from memory in temporary CF
 		for (File directory : originalDirectories.getCFDirectories()) {
-			edu.dprg.morphous.Util.invokePrivateMethodWithReflection(from.getDataTracker(), "removeUnreadableSSTables", directory);
+			edu.uiuc.dprg.morphous.Util.invokePrivateMethodWithReflection(from.getDataTracker(), "removeUnreadableSSTables", directory);
 		}
 		
 		// Add copied SSTable to destination CF, and remove old SSTables from destination CF

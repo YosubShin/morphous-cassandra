@@ -515,4 +515,6 @@ public interface StorageServiceMBean extends NotificationEmitter
     public int getTombstoneFailureThreshold();
     /** Sets the threshold for abandoning queries with many tombstones */
     public void setTombstoneFailureThreshold(int tombstoneDebugThreshold);
+
+    void runMorphous(String keyspace, String[] columnFamilies, String morphousOptions);
 }
