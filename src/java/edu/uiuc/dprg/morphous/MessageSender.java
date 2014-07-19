@@ -77,7 +77,9 @@ public class MessageSender {
 		
 		for (InetAddress dest : Gossiper.instance.getLiveMembers()) {
 			logger.debug("Sending MorphousTask message {} to destination {}", message, dest);
-			MessagingService.instance().sendRR(message, dest, callback, timeoutInMillis);
+//			MessagingService.instance().sendRR(message, dest, callback, timeoutInMillis);
+			MessagingService.instance().sendOneWay(message, dest);
+//			MessagingService.instance().sendOneWay(new MessageOut<>(Verb.ECHO), dest);
 			messageResponses.put(dest, false);
 		}
 		
@@ -138,14 +140,18 @@ public class MessageSender {
 			@Override
 			public void serialize(MorphousTask t, DataOutput out, int version)
 					throws IOException {
-				out.writeChars(t.taskUuid);
+//				out.writeChars(t.taskUuid);
+//				out.writeBytes(t.taskUuid);
+				out.writeUTF(t.taskUuid);
 			}
 			
 			@Override
 			public MorphousTask deserialize(DataInput in, int version)
 					throws IOException {
+				logger.debug("Deserializing MorphousTask");
 				MorphousTask result = new MorphousTask();
-				result.taskUuid = in.readLine();
+				result.taskUuid = in.readUTF();
+				logger.debug("deserialized taskUuid : {}", result.taskUuid);
 				return result;
 			}
 		};
