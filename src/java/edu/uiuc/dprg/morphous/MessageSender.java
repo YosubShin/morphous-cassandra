@@ -9,6 +9,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.db.WriteResponse;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.net.IAsyncCallback;
@@ -17,6 +19,7 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.MessagingService.Verb;
+import org.apache.cassandra.utils.ByteBufferUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,7 +63,7 @@ public class MessageSender {
 			
 			@Override
 			public void response(MessageIn<MorphousTaskResponse> msg) {
-				logger.info("Message with id {} is responded by {}", msg.payload, msg.from);
+				logger.info("MorphouTaskResponse message {} is responded by {}", msg.payload, msg.from);
 				endpointHasResponded(msg.payload, msg.from);
 			}
 			
@@ -77,9 +80,7 @@ public class MessageSender {
 		
 		for (InetAddress dest : Gossiper.instance.getLiveMembers()) {
 			logger.debug("Sending MorphousTask message {} to destination {}", message, dest);
-//			MessagingService.instance().sendRR(message, dest, callback, timeoutInMillis);
-			MessagingService.instance().sendOneWay(message, dest);
-//			MessagingService.instance().sendOneWay(new MessageOut<>(Verb.ECHO), dest);
+			MessagingService.instance().sendRR(message, dest, callback, timeoutInMillis);
 			messageResponses.put(dest, false);
 		}
 		
@@ -130,19 +131,32 @@ public class MessageSender {
 	
 	public static class MorphousTask {
 		public String taskUuid;
+		public MorphousTaskType taskType;
+		public String keyspace;
+		public String columnFamily;
+		public String newPartitionKey;
+		
 		public static final IVersionedSerializer<MorphousTask> serializer = new IVersionedSerializer<MessageSender.MorphousTask>() {
 			
 			@Override
 			public long serializedSize(MorphousTask t, int version) {
-				return t.taskUuid.getBytes().length;
+				long size = 0;
+				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.taskUuid));
+				size += TypeSizes.NATIVE.sizeof(t.taskType.ordinal());
+				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.keyspace));
+				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.columnFamily));
+				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.newPartitionKey));
+				return size;
 			}
 			
 			@Override
 			public void serialize(MorphousTask t, DataOutput out, int version)
 					throws IOException {
-//				out.writeChars(t.taskUuid);
-//				out.writeBytes(t.taskUuid);
-				out.writeUTF(t.taskUuid);
+				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.taskUuid), out);
+				out.writeInt(t.taskType.ordinal());
+				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.keyspace), out);
+				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.columnFamily), out);
+				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.newPartitionKey), out);
 			}
 			
 			@Override
@@ -150,8 +164,13 @@ public class MessageSender {
 					throws IOException {
 				logger.debug("Deserializing MorphousTask");
 				MorphousTask result = new MorphousTask();
-				result.taskUuid = in.readUTF();
-				logger.debug("deserialized taskUuid : {}", result.taskUuid);
+				result.taskUuid = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
+				result.taskType = MorphousTaskType.values()[in.readInt()];
+				result.keyspace = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
+				result.columnFamily = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
+				result.newPartitionKey = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
+				
+				logger.debug("deserialized MorphousTask : {}", result);
 				return result;
 			}
 		};
@@ -164,23 +183,68 @@ public class MessageSender {
 			//TODO
 			logger.info("Task {} is done", this);
 		}
-		
+
 		@Override
 		public String toString() {
-			return "MorphousTask [taskUuid=" + taskUuid + "]";
+			return "MorphousTask [taskUuid=" + taskUuid + ", taskType="
+					+ taskType + ", keyspace=" + keyspace + ", columnFamily="
+					+ columnFamily 
+					+ ", newPartitionKey=" + newPartitionKey + "]";
 		}
+	}
+	
+	public enum MorphousTaskType {
+		INSERT,
+		CATCH_UP,
+		ATOMIC_SWITCH;
 	}
 	
 	public static class MorphousTaskResponse {
 		public String taskUuid;
+		public static final IVersionedSerializer<MorphousTaskResponse> serializer = new IVersionedSerializer<MessageSender.MorphousTaskResponse>() {
+			
+			@Override
+			public long serializedSize(MorphousTaskResponse t, int version) {
+				long size = 0;
+				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.taskUuid));
+				return size;
+			}
+			
+			@Override
+			public void serialize(MorphousTaskResponse t, DataOutput out, int version)
+					throws IOException {
+				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.taskUuid), out);
+			}
+			
+			@Override
+			public MorphousTaskResponse deserialize(DataInput in, int version)
+					throws IOException {
+				logger.debug("Deserializing MorphousTaskResponse");
+				MorphousTaskResponse result = new MorphousTaskResponse();
+				result.taskUuid = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
+				
+				logger.debug("deserialized MorphousTaskResponse : {}", result);
+				return result;
+			}
+		};
+		@Override
+		public String toString() {
+			return "MorphousTaskResponse [taskUuid=" + taskUuid + "]";
+		}
 	}
 	
 	public static class MorphousVerbHandler implements IVerbHandler<MorphousTask> {
 
 		@Override
 		public void doVerb(MessageIn<MorphousTask> message, int id) {
-			// TODO Auto-generated method stub
-			logger.info("MorphousTask message with id {} Received : {}", id, message);
+			logger.info("MorphousTask message with id {} Received : {}, and payload : {}", id, message, message.payload);
+			MorphousTask task = message.payload;			
+			
+			MorphousTaskResponse taskResponse = new MorphousTaskResponse();
+			taskResponse.taskUuid = task.taskUuid;
+			MessageOut<MorphousTaskResponse> responseMessage = new MessageOut<MorphousTaskResponse>(MessagingService.Verb.REQUEST_RESPONSE, taskResponse, MorphousTaskResponse.serializer);
+			logger.debug("Sending MorphousTaskResponse reply to {}, with message {}", message.from, responseMessage);
+			MessagingService.instance().sendReply(responseMessage, id, message.from);
 		}
 		
 	}

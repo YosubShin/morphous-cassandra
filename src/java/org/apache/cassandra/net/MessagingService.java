@@ -35,6 +35,7 @@ import com.google.common.base.Function;
 import com.google.common.collect.Lists;
 
 import edu.uiuc.dprg.morphous.MessageSender.MorphousTask;
+import edu.uiuc.dprg.morphous.MessageSender.MorphousTaskResponse;
 
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import org.slf4j.Logger;
@@ -238,7 +239,7 @@ public final class MessagingService implements MessagingServiceMBean
 
         put(Verb.PAXOS_PREPARE, PrepareResponse.serializer);
         put(Verb.PAXOS_PROPOSE, BooleanSerializer.serializer);
-        put(Verb.MORPHOUS_TASK, MorphousTask.serializer);
+        put(Verb.MORPHOUS_TASK, MorphousTaskResponse.serializer);
     }};
 
     /* This records all the results mapped by message Id */

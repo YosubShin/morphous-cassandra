@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import edu.uiuc.dprg.morphous.MessageSender.MorphousTask;
+import edu.uiuc.dprg.morphous.MessageSender.MorphousTaskType;
 
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
@@ -53,6 +54,10 @@ public class Morphous {
                 logger.info(message);
                 try {
                 	MorphousTask morphousTask = new MorphousTask();
+                	morphousTask.taskType = MorphousTaskType.INSERT;
+                	morphousTask.keyspace = keyspace;
+                	morphousTask.columnFamily = columnFamily;
+                	morphousTask.newPartitionKey = config.columnName;
                 	MessageSender.instance().sendMorphousTaskToAllEndpoints(morphousTask);
                 } catch(Exception e) {
                     logger.error("Execption occurred {}", e);
