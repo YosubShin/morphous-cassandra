@@ -3,14 +3,39 @@ package edu.uiuc.dprg.morphous;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.InetAddress;
+import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnFamily;
+import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.TokenMetadata;
+import org.apache.cassandra.service.StorageService;
+import org.apache.cassandra.thrift.Cassandra;
+import org.apache.cassandra.thrift.Cassandra.Client;
+import org.apache.cassandra.thrift.Compression;
+import org.apache.cassandra.thrift.ConsistencyLevel;
+import org.apache.cassandra.thrift.CqlResult;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.apache.cassandra.utils.FBUtilities;
+import org.apache.thrift.TException;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.protocol.TProtocol;
+import org.apache.thrift.transport.TFramedTransport;
+import org.apache.thrift.transport.TSocket;
+import org.apache.thrift.transport.TTransport;
+import org.apache.thrift.transport.TTransportException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,6 +119,54 @@ public class Util {
 			throw new RuntimeException(String.format("Reflection exception trying to unwrap a private method %s from %s", methodName, object), e);
 		}
 		return result;
+	}
+
+	public static ByteBuffer getColumnNameByteBuffer(String columnName) {
+		ByteBuffer rawBb = ByteBufferUtil.bytes(columnName);
+		return getColumnNameByteBuffer(rawBb);
+	}
+	
+	public static ByteBuffer getColumnNameByteBuffer(ByteBuffer columnNameByteBuffer) {
+		ByteBuffer bb = ByteBuffer.allocate(TypeSizes.NATIVE.sizeofWithShortLength(columnNameByteBuffer) + 1);
+		ByteBufferUtil.writeShortLength(bb, columnNameByteBuffer.remaining());
+		bb.put(columnNameByteBuffer);
+		bb.put((byte) 0);
+		bb.rewind();
+		return bb;
+	}
+
+	@SuppressWarnings("rawtypes")
+	public static Collection<Range<Token>> getNthRangesForLocalNode(String keyspace, int n) {
+	    AbstractReplicationStrategy strategy = Keyspace.open(keyspace).getReplicationStrategy();
+	    Collection<Range<Token>> nthRanges = new HashSet<Range<Token>>();
+	    
+	    TokenMetadata metadata = ((TokenMetadata) getPrivateFieldWithReflection(StorageService.instance, "tokenMetadata")).cloneOnlyTokenMap();
+	                    
+	    for (Token token : metadata.sortedTokens())
+	    {
+	        List<InetAddress> endpoints = strategy.calculateNaturalEndpoints(token, metadata);
+	        if (endpoints.size() >= n && endpoints.get(n - 1).equals(FBUtilities.getBroadcastAddress()))
+	            nthRanges.add(new Range<Token>(metadata.getPredecessor(token), token));
+	    }
+	    return nthRanges;
+	}
+
+	public static Cassandra.Client getClient() throws TTransportException
+	{
+	    TTransport tr = new TFramedTransport(new TSocket("localhost", DatabaseDescriptor.getRpcPort()));
+	    TProtocol proto = new TBinaryProtocol(tr);
+	    Cassandra.Client client = new Cassandra.Client(proto);
+	    tr.open();
+	    return client;
+	}
+
+	public static CqlResult executeCql3Statement(String statement) {
+		try {
+			Cassandra.Client client = getClient();
+			return client.execute_cql3_query(ByteBufferUtil.bytes(statement), Compression.NONE, ConsistencyLevel.QUORUM);
+		} catch (TException e) {
+			throw new RuntimeException(e);
+		}
 	}
 
 }

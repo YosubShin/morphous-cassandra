@@ -11,6 +11,8 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import edu.uiuc.dprg.morphous.Util;
+
 public class MorphousTest extends CqlTestBase {
 	private static Logger logger = LoggerFactory.getLogger(MorphousTest.class);
     
@@ -21,25 +23,25 @@ public class MorphousTest extends CqlTestBase {
     
     @Test
     public void testCreateAndDropTemporaryTable() {
-    	String ksName = "TestKeyspace";
+    	String ksName = "testeyspace_create_and_drop";
     	String cfName = "cf0";
-    	executeCql3Statement("CREATE KEYSPACE " + ksName + " WITH replication = {'class':'SimpleStrategy', 'replication_factor':1};");
-		executeCql3Statement("CREATE TABLE " + ksName + "." + cfName + " ( col0 varchar PRIMARY KEY, col1 varchar);");
+    	Util.executeCql3Statement("CREATE KEYSPACE " + ksName + " WITH replication = {'class':'SimpleStrategy', 'replication_factor':1};");
+		Util.executeCql3Statement("CREATE TABLE " + ksName + "." + cfName + " ( col0 varchar PRIMARY KEY, col1 varchar);");
 		
-		CqlResult result = executeCql3Statement("SELECT * FROM " + ksName + "." + cfName);
+		CqlResult result = Util.executeCql3Statement("SELECT * FROM " + ksName + "." + cfName);
 		assertEquals(0, result.rows.size());
 		
 		for (int j = 0; j < 100; j++) {
-        	executeCql3Statement(String.format("INSERT INTO " + ksName + "." + cfName + " (col0, col1) VALUES ('cf0-col0-%03d', 'cf0-col1-%03d');", j, j));
+        	Util.executeCql3Statement(String.format("INSERT INTO " + ksName + "." + cfName + " (col0, col1) VALUES ('cf0-col0-%03d', 'cf0-col1-%03d');", j, j));
         }
 		
-		result = executeCql3Statement("SELECT * FROM " + ksName + "." + cfName);
+		result = Util.executeCql3Statement("SELECT * FROM " + ksName + "." + cfName);
 		assertEquals(100, result.rows.size());
 		
-		executeCql3Statement("DROP TABLE " + ksName + "." + cfName);
+		Util.executeCql3Statement("DROP TABLE " + ksName + "." + cfName);
 		
 		try {
-			result = executeCql3Statement("SELECT * FROM " + ksName + "." + cfName);	
+			result = Util.executeCql3Statement("SELECT * FROM " + ksName + "." + cfName);	
 		} catch (RuntimeException e) {
 			return;
 		}

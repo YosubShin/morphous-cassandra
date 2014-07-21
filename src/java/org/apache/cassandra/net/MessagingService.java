@@ -34,8 +34,8 @@ import javax.management.ObjectName;
 import com.google.common.base.Function;
 import com.google.common.collect.Lists;
 
-import edu.uiuc.dprg.morphous.MessageSender.MorphousTask;
-import edu.uiuc.dprg.morphous.MessageSender.MorphousTaskResponse;
+import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTask;
+import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskResponse;
 
 import org.cliffc.high_scale_lib.NonBlockingHashMap;
 import org.slf4j.Logger;

@@ -7,6 +7,7 @@ import java.net.InetAddress;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.cassandra.db.TypeSizes;
@@ -23,30 +24,32 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MessageSender {
-	private static final Logger logger = LoggerFactory.getLogger(MessageSender.class);
-	private static MessageSender instance = new MessageSender();
+import com.google.common.base.Function;
+
+public class MorphousTaskMessageSender {
+	private static final Logger logger = LoggerFactory.getLogger(MorphousTaskMessageSender.class);
+	private static MorphousTaskMessageSender instance = new MorphousTaskMessageSender();
 	
 	static long timeoutInMillis = 1000 * 60 * 5; 
-	ConcurrentHashMap<String, Map<InetAddress, Boolean>> messageResponseMap = new ConcurrentHashMap<>();
-	ConcurrentHashMap<String, MorphousTask> morphousTaskMap = new ConcurrentHashMap<String, MessageSender.MorphousTask>();
+	ConcurrentHashMap<String, Map<InetAddress, MorphousTaskResponse>> messageResponseMap = new ConcurrentHashMap<>();
+	ConcurrentHashMap<String, MorphousTask> morphousTaskMap = new ConcurrentHashMap<String, MorphousTaskMessageSender.MorphousTask>();
 	
-	private MessageSender() {	
+	private MorphousTaskMessageSender() {	
 	}
 	
-	public static MessageSender instance() {
+	public static MorphousTaskMessageSender instance() {
 		return instance;
 	}
 	
 	public void endpointHasResponded(MorphousTaskResponse taskResponse, InetAddress from) {
 		synchronized(messageResponseMap) {
 			synchronized (morphousTaskMap) {
-				Map<InetAddress, Boolean> messageResponses = messageResponseMap.get(taskResponse.taskUuid);
+				Map<InetAddress, MorphousTaskResponse> messageResponses = messageResponseMap.get(taskResponse.taskUuid);
 				if (messageResponses == null || !messageResponses.containsKey(from)) {
 					logger.warn("The MorphousTask for response {} does not exists probably due to timeout", taskResponse);
 					return;
 				}
-				messageResponses.put(from, true);
+				messageResponses.put(from, taskResponse);
 			}
 		}
 	}
@@ -59,7 +62,7 @@ public class MessageSender {
 	
 	public void sendMessageToAllEndpoints(MessageOut<MorphousTask> message) {
 		long taskStartedAt = System.currentTimeMillis();
-		IAsyncCallback<MorphousTaskResponse> callback = new IAsyncCallback<MessageSender.MorphousTaskResponse>() {
+		IAsyncCallback<MorphousTaskResponse> callback = new IAsyncCallback<MorphousTaskMessageSender.MorphousTaskResponse>() {
 			
 			@Override
 			public void response(MessageIn<MorphousTaskResponse> msg) {
@@ -74,14 +77,14 @@ public class MessageSender {
 		}; 
 		
 		MorphousTask task = message.payload;
-		HashMap<InetAddress, Boolean> messageResponses = new HashMap<>();
+		HashMap<InetAddress, MorphousTaskResponse> messageResponses = new HashMap<>();
 		messageResponseMap.put(task.taskUuid, messageResponses);
 		morphousTaskMap.put(task.taskUuid, task);
 		
 		for (InetAddress dest : Gossiper.instance.getLiveMembers()) {
 			logger.debug("Sending MorphousTask message {} to destination {}", message, dest);
 			MessagingService.instance().sendRR(message, dest, callback, timeoutInMillis);
-			messageResponses.put(dest, false);
+			messageResponses.put(dest, new MorphousTaskResponse());
 		}
 		
 		// Should wait for response to comeback till the timeout is over
@@ -95,9 +98,10 @@ public class MessageSender {
 				synchronized (morphousTaskMap) {
 					if(isMorphousTaskOver(task.taskUuid)) {
 						logger.info("Morphous Task ended in {} milliseconds", System.currentTimeMillis() - taskStartedAt);
-						task.taskIsDone();
-						messageResponseMap.remove(task.taskUuid);
+						Map<InetAddress, MorphousTaskResponse> responses = messageResponseMap.remove(task.taskUuid);
 						morphousTaskMap.remove(task.taskUuid);
+						
+						task.taskIsDone(responses);
 						return;
 					}
 				}
@@ -120,8 +124,8 @@ public class MessageSender {
 		if (task == null || !messageResponseMap.containsKey(task.taskUuid)) {
 			return true;
 		} else {
-			for (boolean value : messageResponseMap.get(task.taskUuid).values()) {
-				if (!value) {
+			for (MorphousTaskResponse value : messageResponseMap.get(task.taskUuid).values()) {
+				if (value.status != MorphousTaskResponseStatus.SUCCESSFUL) {
 					return false;
 				}
 			}
@@ -135,8 +139,9 @@ public class MessageSender {
 		public String keyspace;
 		public String columnFamily;
 		public String newPartitionKey;
+		public MorphousTaskCallback callback;
 		
-		public static final IVersionedSerializer<MorphousTask> serializer = new IVersionedSerializer<MessageSender.MorphousTask>() {
+		public static final IVersionedSerializer<MorphousTask> serializer = new IVersionedSerializer<MorphousTaskMessageSender.MorphousTask>() {
 			
 			@Override
 			public long serializedSize(MorphousTask t, int version) {
@@ -179,9 +184,17 @@ public class MessageSender {
 			this.taskUuid = UUID.randomUUID().toString();
 		}
 		
-		public void taskIsDone() {
-			//TODO
-			logger.info("Task {} is done", this);
+		public void taskIsDone(Map<InetAddress, MorphousTaskResponse> responses) {
+			for (Entry<InetAddress, MorphousTaskResponse> entry : responses.entrySet()) {
+				MorphousTaskResponse response = entry.getValue();
+				assert response.status == MorphousTaskResponseStatus.SUCCESSFUL : "MorphousTaskResponse from " + entry.getKey() + " is not successful";
+			}
+			if (this.callback != null) {
+				logger.info("MorphousTask {} is done, now executing callback", this);
+				callback.callback(this, responses);
+			} else {
+				logger.info("MorphousTask {} is done", this);		
+			}
 		}
 
 		@Override
@@ -201,19 +214,26 @@ public class MessageSender {
 	
 	public static class MorphousTaskResponse {
 		public String taskUuid;
-		public static final IVersionedSerializer<MorphousTaskResponse> serializer = new IVersionedSerializer<MessageSender.MorphousTaskResponse>() {
+		public MorphousTaskResponseStatus status = MorphousTaskResponseStatus.NULL;
+		public String message = "";
+		public static final IVersionedSerializer<MorphousTaskResponse> serializer = new IVersionedSerializer<MorphousTaskMessageSender.MorphousTaskResponse>() {
 			
 			@Override
 			public long serializedSize(MorphousTaskResponse t, int version) {
 				long size = 0;
 				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.taskUuid));
+				size += TypeSizes.NATIVE.sizeof(t.status.ordinal());
+				size += TypeSizes.NATIVE.sizeofWithLength(ByteBufferUtil.bytes(t.message));
 				return size;
 			}
 			
 			@Override
 			public void serialize(MorphousTaskResponse t, DataOutput out, int version)
 					throws IOException {
+				
 				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.taskUuid), out);
+				out.writeInt(t.status.ordinal());
+				ByteBufferUtil.writeWithLength(ByteBufferUtil.bytes(t.message), out);
 			}
 			
 			@Override
@@ -222,6 +242,8 @@ public class MessageSender {
 				logger.debug("Deserializing MorphousTaskResponse");
 				MorphousTaskResponse result = new MorphousTaskResponse();
 				result.taskUuid = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
+				result.status = MorphousTaskResponseStatus.values()[in.readInt()];
+				result.message = ByteBufferUtil.string(ByteBufferUtil.readWithLength(in));
 				
 				logger.debug("deserialized MorphousTaskResponse : {}", result);
 				return result;
@@ -229,20 +251,46 @@ public class MessageSender {
 		};
 		@Override
 		public String toString() {
-			return "MorphousTaskResponse [taskUuid=" + taskUuid + "]";
+			return "MorphousTaskResponse [taskUuid=" + taskUuid + ", status="
+					+ status + ", message=" + message + "]";
 		}
+
+	}
+	
+	public enum MorphousTaskResponseStatus {
+		SUCCESSFUL,
+		FAILED,
+		NULL;
+	}
+	
+	public interface MorphousTaskCallback {
+		void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses);
 	}
 	
 	public static class MorphousVerbHandler implements IVerbHandler<MorphousTask> {
+		public static final Map<MorphousTaskType, MorphousTaskHandler> taskHandlers;
+		static {
+			taskHandlers = new HashMap<MorphousTaskMessageSender.MorphousTaskType, MorphousTaskHandler>();
+			taskHandlers.put(MorphousTaskType.INSERT, new InsertMorphousTaskHandler());
+			taskHandlers.put(MorphousTaskType.ATOMIC_SWITCH, new AtomicSwitchMorphousTaskHandler());
+		}
 
 		@Override
 		public void doVerb(MessageIn<MorphousTask> message, int id) {
+			long startAt = System.currentTimeMillis();
 			logger.info("MorphousTask message with id {} Received : {}, and payload : {}", id, message, message.payload);
 			MorphousTask task = message.payload;			
 			
-			MorphousTaskResponse taskResponse = new MorphousTaskResponse();
-			taskResponse.taskUuid = task.taskUuid;
+			MorphousTaskHandler handler = taskHandlers.get(task.taskType);
+			if (handler == null) {
+				throw new MorphousException("Handler for the Morphous Task does not exists!");
+			}
+			MorphousTaskResponse taskResponse = handler.handle(task);
+					
+			logger.debug("Finished executing MorphousTask {} in {} ms.", task, System.currentTimeMillis() - startAt);
+			
 			MessageOut<MorphousTaskResponse> responseMessage = new MessageOut<MorphousTaskResponse>(MessagingService.Verb.REQUEST_RESPONSE, taskResponse, MorphousTaskResponse.serializer);
+			
 			logger.debug("Sending MorphousTaskResponse reply to {}, with message {}", message.from, responseMessage);
 			MessagingService.instance().sendReply(responseMessage, id, message.from);
 		}
