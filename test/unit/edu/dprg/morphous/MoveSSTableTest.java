@@ -45,6 +45,7 @@ import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
 import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.thrift.CqlResult;
+import org.apache.cassandra.thrift.CqlRow;
 import org.apache.cassandra.thrift.SlicePredicate;
 import org.apache.cassandra.thrift.ThriftValidation;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -54,6 +55,7 @@ import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import edu.uiuc.dprg.morphous.AtomicSwitchMorphousTaskHandler;
 import edu.uiuc.dprg.morphous.Morphous;
 
 @RunWith(OrderedJUnit4ClassRunner.class)
@@ -95,7 +97,7 @@ public class MoveSSTableTest extends CqlTestBase
         cfs1.truncateBlocking();
         cfs2.truncateBlocking();
 		
-		for (int i = 1; i <= 100; i++) {
+		for (int i = 1; i <= 500; i++) {
 			ByteBuffer key = ByteBufferUtil.bytes("key-cf1-" + i);
 			RowMutation rm = new RowMutation(ks1, key);
 			rm.add(cfName1, ByteBufferUtil.bytes("Column1"), ByteBufferUtil.bytes("cf1-value" + i), 0);
@@ -123,7 +125,7 @@ public class MoveSSTableTest extends CqlTestBase
                 System.currentTimeMillis(),
                 true,
                 false);
-		assertEquals(100, rows1.size());
+		assertEquals(500, rows1.size());
 		
 		List<Row> rows2 = cfs2.getRangeSlice(Util.range("", ""),
                 null,
@@ -137,7 +139,7 @@ public class MoveSSTableTest extends CqlTestBase
 		ColumnFamily cf = cfs1.getColumnFamily(QueryFilter.getIdentityFilter(Util.dk("key-cf1-1"), cfName1, System.currentTimeMillis()));
 		assertNotNull(cf);
 		
-		Morphous.instance().moveSSTablesFromDifferentCFAndRemovePreviousSSTables(keyspace, cfs1, cfs2);
+		new AtomicSwitchMorphousTaskHandler().swapSSTablesBetweenCfs(cfs1, cfs2);
 		
 		cfs1.reload();
 		rows1 = cfs1.getRangeSlice(Util.range("", ""),
@@ -147,7 +149,7 @@ public class MoveSSTableTest extends CqlTestBase
                 System.currentTimeMillis(),
                 true,
                 false);
-		assertEquals(0, rows1.size());		
+		assertEquals(100, rows1.size());		
 		
 		cfs2.reload();
 		rows2 = cfs2.getRangeSlice(Util.range("", ""),
@@ -157,7 +159,7 @@ public class MoveSSTableTest extends CqlTestBase
                 System.currentTimeMillis(),
                 true,
                 false);
-		assertEquals(100, rows2.size());
+		assertEquals(500, rows2.size());
 	}
 	
 	@Test
@@ -196,20 +198,99 @@ public class MoveSSTableTest extends CqlTestBase
         	assertEquals(1,  selectCf0.rows.size());
         }
         
-        Morphous.instance().moveSSTablesFromDifferentCFAndRemovePreviousSSTables(ks, cfs0, cfs1);
+        AtomicSwitchMorphousTaskHandler handler = new AtomicSwitchMorphousTaskHandler();
+        handler.swapSSTablesBetweenCfs(cfs0, cfs1);
         Morphous.instance().migrateColumnFamilyDefinitionToUseNewPartitonKey(ksName, cfName[1], "col0");
+        Morphous.instance().migrateColumnFamilyDefinitionToUseNewPartitonKey(ksName, cfName[0], "col1");
         
         cfs0.reload();
         cfs1.reload();
         
         selectCf0 = edu.uiuc.dprg.morphous.Util.executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[0] + ";");
-        assertEquals(0, selectCf0.rows.size());
+        assertEquals(100, selectCf0.rows.size());
         
         selectCf1 = edu.uiuc.dprg.morphous.Util.executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[1] + ";");
         assertEquals(100, selectCf1.rows.size());
         
+        List<CqlRow> rows = edu.uiuc.dprg.morphous.Util.executeCql3Statement("SELECT * FROM system.schema_columns where keyspace_name = '" + ksName + "';").rows;
+        
+        for (int i = 0; i < 100; i++) {
+        	String query = "SELECT * FROM " + ksName + "." + cfName[0] + String.format(" WHERE col1 = 'cf1-col1-%03d';", i);
+        	logger.info("Executing query {}", query);
+        	selectCf1 = edu.uiuc.dprg.morphous.Util.executeCql3Statement(query);
+        	assertEquals(1,  selectCf1.rows.size());
+        }
         for (int i = 0; i < 100; i++) {
         	String query = "SELECT * FROM " + ksName + "." + cfName[1] + String.format(" WHERE col0 = 'cf0-col0-%03d';", i);
+        	logger.info("Executing query {}", query);
+        	selectCf1 = edu.uiuc.dprg.morphous.Util.executeCql3Statement(query);
+        	assertEquals(1,  selectCf1.rows.size());
+        }
+	}
+	
+	@Test
+	public void testMigrateColumnFamilyDefinitionToUseNewPartitonKey2() throws Exception {
+        String ksName = "testkeyspace_migrate_cf_2";
+        String[] cfName = {"cf0", "cf1"};
+		
+		edu.uiuc.dprg.morphous.Util.executeCql3Statement("CREATE KEYSPACE " + ksName + " WITH replication = {'class':'SimpleStrategy', 'replication_factor':1};");
+		edu.uiuc.dprg.morphous.Util.executeCql3Statement("CREATE TABLE " + ksName + "." + cfName[0] + " ( col0 int PRIMARY KEY, col1 int, col2 varchar);");
+		edu.uiuc.dprg.morphous.Util.executeCql3Statement("CREATE TABLE " + ksName + "." + cfName[1] + " ( col0 int, col1 int PRIMARY KEY, col2 varchar);");
+		
+        Keyspace ks = Keyspace.open(ksName);
+        ColumnFamilyStore cfs0 = ks.getColumnFamilyStore(cfName[0]);
+        ColumnFamilyStore cfs1 = ks.getColumnFamilyStore(cfName[1]);
+
+        for (int i = 0; i < 2; i++) {
+            for (int j = 0; j < 100; j++) {
+            	edu.uiuc.dprg.morphous.Util.executeCql3Statement(String.format("INSERT INTO " + ksName + "." + cfName[i] + " (col0, col1, col2) VALUES (%d, %d, 'cf%d-col2-%03d');", j + i * 1000, 100 + j + i * 1000, i, j));
+            }        	
+        }
+        
+        CqlResult selectCf0 = edu.uiuc.dprg.morphous.Util.executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[0] + ";");
+        assertEquals(100, selectCf0.rows.size());
+        
+        CqlResult selectCf1 = edu.uiuc.dprg.morphous.Util.executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[1] + ";");
+        assertEquals(100, selectCf1.rows.size());
+        
+        // Flush Memtables out to SSTables
+        cfs0.forceBlockingFlush();
+        cfs1.forceBlockingFlush();
+        
+        CqlResult originalResult;
+        for (int i = 0; i < 100; i++) {
+        	String query = "SELECT * FROM " + ksName + "." + cfName[0] + String.format(" WHERE col0 = %d;", i);
+        	logger.info("Executing query {}", query);
+        	originalResult = edu.uiuc.dprg.morphous.Util.executeCql3Statement(query);
+        	assertEquals(1,  originalResult.rows.size());
+        }
+        
+        originalResult = edu.uiuc.dprg.morphous.Util.executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[0] + ";");
+        
+        AtomicSwitchMorphousTaskHandler handler = new AtomicSwitchMorphousTaskHandler();
+        handler.swapSSTablesBetweenCfs(cfs0, cfs1);
+        Morphous.instance().migrateColumnFamilyDefinitionToUseNewPartitonKey(ksName, cfName[1], "col0");
+        Morphous.instance().migrateColumnFamilyDefinitionToUseNewPartitonKey(ksName, cfName[0], "col1");
+        
+        cfs0.reload();
+        cfs1.reload();
+        
+        selectCf0 = edu.uiuc.dprg.morphous.Util.executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[0] + ";");
+        assertEquals(100, selectCf0.rows.size());
+        
+        selectCf1 = edu.uiuc.dprg.morphous.Util.executeCql3Statement("SELECT * FROM " + ksName + "." + cfName[1] + ";");
+        assertEquals(100, selectCf1.rows.size());
+        
+        List<CqlRow> rows = edu.uiuc.dprg.morphous.Util.executeCql3Statement("SELECT * FROM system.schema_columns where keyspace_name = '" + ksName + "';").rows;
+        
+        for (int i = 0; i < 100; i++) {
+        	String query = "SELECT * FROM " + ksName + "." + cfName[0] + String.format(" WHERE col1 = %d;", i + 100 + 1000);
+        	logger.info("Executing query {}", query);
+        	selectCf1 = edu.uiuc.dprg.morphous.Util.executeCql3Statement(query);
+        	assertEquals(1,  selectCf1.rows.size());
+        }
+        for (int i = 0; i < 100; i++) {
+        	String query = "SELECT * FROM " + ksName + "." + cfName[1] + String.format(" WHERE col0 = %d;", i);
         	logger.info("Executing query {}", query);
         	selectCf1 = edu.uiuc.dprg.morphous.Util.executeCql3Statement(query);
         	assertEquals(1,  selectCf1.rows.size());

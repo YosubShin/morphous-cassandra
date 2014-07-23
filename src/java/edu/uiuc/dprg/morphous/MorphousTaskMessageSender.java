@@ -25,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Function;
+import com.google.common.base.Throwables;
 
 public class MorphousTaskMessageSender {
 	private static final Logger logger = LoggerFactory.getLogger(MorphousTaskMessageSender.class);
@@ -191,7 +192,12 @@ public class MorphousTaskMessageSender {
 			}
 			if (this.callback != null) {
 				logger.info("MorphousTask {} is done, now executing callback", this);
-				callback.callback(this, responses);
+				try {
+					callback.callback(this, responses);	
+				} catch (Exception e) {
+					logger.error("Execption while executing callback on MorphousTask {}, with exception {}", this, e);
+					throw new MorphousException("Error while executing callback on MorphousTask", e);
+				}
 			} else {
 				logger.info("MorphousTask {} is done", this);		
 			}
@@ -280,12 +286,20 @@ public class MorphousTaskMessageSender {
 			long startAt = System.currentTimeMillis();
 			logger.info("MorphousTask message with id {} Received : {}, and payload : {}", id, message, message.payload);
 			MorphousTask task = message.payload;			
-			
 			MorphousTaskHandler handler = taskHandlers.get(task.taskType);
-			if (handler == null) {
-				throw new MorphousException("Handler for the Morphous Task does not exists!");
+			MorphousTaskResponse taskResponse = null;
+			try {
+				if (handler == null) {
+					throw new MorphousException("Handler for the Morphous Task does not exists!");
+				}
+				taskResponse = handler.handle(task);	
+			} catch (Exception e) {
+				logger.error("MorphousTask Handling failed with Exception {}.", e);
+				taskResponse = new MorphousTaskResponse();
+				taskResponse.taskUuid = task.taskUuid;
+				taskResponse.status = MorphousTaskResponseStatus.FAILED;
+				taskResponse.message = Throwables.getStackTraceAsString(e);
 			}
-			MorphousTaskResponse taskResponse = handler.handle(task);
 					
 			logger.debug("Finished executing MorphousTask {} in {} ms.", task, System.currentTimeMillis() - startAt);
 			

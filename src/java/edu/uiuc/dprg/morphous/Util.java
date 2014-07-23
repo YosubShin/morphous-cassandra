@@ -1,5 +1,8 @@
 package edu.uiuc.dprg.morphous;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInput;
+import java.io.DataInputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -7,6 +10,7 @@ import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -167,6 +171,80 @@ public class Util {
 		} catch (TException e) {
 			throw new RuntimeException(e);
 		}
+	}
+	
+	public static String toStringByteBuffer(ByteBuffer inBb, Object... typeArray) {
+		StringBuilder sb = new StringBuilder();
+		ByteBuffer bb = inBb.asReadOnlyBuffer();
+		Class<?> type = null;
+		if (typeArray.length > 0) {
+			type = (Class<?>) typeArray[0];
+			if (type.equals(String.class)) {
+				try {
+					String tmp = ByteBufferUtil.string(bb.asReadOnlyBuffer());
+					sb.append(tmp);
+				} catch (Exception e4) {
+					try (ByteArrayInputStream bais = new ByteArrayInputStream(
+							bb.array());) {
+						DataInput in = new DataInputStream(bais);
+						sb.append(ByteBufferUtil.string(ByteBufferUtil
+								.readWithShortLength(in)));
+					} catch (Exception e1) {
+						try {
+							sb.append(Arrays.toString(ByteBufferUtil.getArray(bb)));
+						} catch (RuntimeException e2) {
+
+						}
+					}
+				}	
+			} else if (type.equals(Integer.class)) {
+				try {
+					sb.append(ByteBufferUtil.toInt(bb.asReadOnlyBuffer()));
+				} catch (Exception e) {
+					try {
+						sb.append(Arrays.toString(ByteBufferUtil.getArray(bb)));
+					} catch (RuntimeException e2) {
+
+					}
+				}
+			} else {
+				try {
+					sb.append(Arrays.toString(ByteBufferUtil.getArray(bb)));
+				} catch (RuntimeException e2) {
+
+				}
+			}
+		} else {
+			try {
+				String tmp = ByteBufferUtil.string(bb.asReadOnlyBuffer());
+				sb.append(tmp);
+				if (tmp.length() <= 4) {
+					sb.append(" (" + ByteBufferUtil.toInt(bb.asReadOnlyBuffer())
+							+ ")");
+				}
+			} catch (Exception e4) {
+				try {
+					sb.append(" (" + ByteBufferUtil.toInt(bb.asReadOnlyBuffer())
+							+ ")");
+					// sb.append(Arrays.toString(ByteBufferUtil
+					// .getArray(bb.asReadOnlyBuffer())));
+				} catch (Exception e) {
+					try (ByteArrayInputStream bais = new ByteArrayInputStream(
+							bb.array());) {
+						DataInput in = new DataInputStream(bais);
+						sb.append(ByteBufferUtil.string(ByteBufferUtil
+								.readWithShortLength(in)));
+					} catch (Exception e1) {
+						try {
+							sb.append(Arrays.toString(ByteBufferUtil.getArray(bb)));
+						} catch (RuntimeException e2) {
+
+						}
+					}
+				}
+			}	
+		}
+		return sb.toString();
 	}
 
 }

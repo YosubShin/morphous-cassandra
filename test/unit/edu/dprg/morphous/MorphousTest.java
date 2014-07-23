@@ -23,7 +23,7 @@ public class MorphousTest extends CqlTestBase {
     
     @Test
     public void testCreateAndDropTemporaryTable() {
-    	String ksName = "testeyspace_create_and_drop";
+    	String ksName = "testkeyspace_create_and_drop";
     	String cfName = "cf0";
     	Util.executeCql3Statement("CREATE KEYSPACE " + ksName + " WITH replication = {'class':'SimpleStrategy', 'replication_factor':1};");
 		Util.executeCql3Statement("CREATE TABLE " + ksName + "." + cfName + " ( col0 varchar PRIMARY KEY, col1 varchar);");
