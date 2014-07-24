@@ -60,7 +60,7 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 			// TODO Unblock local writes
 		}
 		
-		logger.debug("AtomcSwitchMorphousTask {} finished in {} ms.", task, System.currentTimeMillis() - startAt);
+		logger.debug("AtomcSwitchMorphousTask {} finished in {} ms, and generated response : {}", task, System.currentTimeMillis() - startAt, response);
 		return response;
 	}
 	

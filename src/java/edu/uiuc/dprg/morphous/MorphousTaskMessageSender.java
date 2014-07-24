@@ -8,10 +8,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.Map.Entry;
-import java.util.concurrent.ConcurrentHashMap;
-
 import org.apache.cassandra.db.TypeSizes;
-import org.apache.cassandra.db.WriteResponse;
 import org.apache.cassandra.gms.Gossiper;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.net.IAsyncCallback;
@@ -24,7 +21,6 @@ import org.apache.cassandra.utils.ByteBufferUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Function;
 import com.google.common.base.Throwables;
 
 public class MorphousTaskMessageSender {
@@ -32,9 +28,9 @@ public class MorphousTaskMessageSender {
 	private static MorphousTaskMessageSender instance = new MorphousTaskMessageSender();
 	
 	static long timeoutInMillis = 1000 * 60 * 5; 
-	ConcurrentHashMap<String, Map<InetAddress, MorphousTaskResponse>> messageResponseMap = new ConcurrentHashMap<>();
-	ConcurrentHashMap<String, MorphousTask> morphousTaskMap = new ConcurrentHashMap<String, MorphousTaskMessageSender.MorphousTask>();
-	
+	HashMap<String, Map<InetAddress, MorphousTaskResponse>> messageResponseMap = new HashMap<>();
+	HashMap<String, MorphousTask> morphousTaskMap = new HashMap<>();
+		
 	private MorphousTaskMessageSender() {	
 	}
 	
@@ -43,15 +39,15 @@ public class MorphousTaskMessageSender {
 	}
 	
 	public void endpointHasResponded(MorphousTaskResponse taskResponse, InetAddress from) {
+		logger.debug("EndpointHasResponded() was invoked with response {}, and from {}", taskResponse, from);
 		synchronized(messageResponseMap) {
-			synchronized (morphousTaskMap) {
-				Map<InetAddress, MorphousTaskResponse> messageResponses = messageResponseMap.get(taskResponse.taskUuid);
-				if (messageResponses == null || !messageResponses.containsKey(from)) {
-					logger.warn("The MorphousTask for response {} does not exists probably due to timeout", taskResponse);
-					return;
-				}
-				messageResponses.put(from, taskResponse);
+			Map<InetAddress, MorphousTaskResponse> messageResponses = messageResponseMap.get(taskResponse.taskUuid);
+			if (messageResponses == null || !messageResponses.containsKey(from)) {
+				logger.warn("The MorphousTask for response {} does not exists probably due to timeout", taskResponse);
+				return;
 			}
+			messageResponses.put(from, taskResponse);
+			logger.debug("messageResponses after endpoint {} has responded :{}", from, messageResponses);
 		}
 	}
 	
@@ -77,45 +73,52 @@ public class MorphousTaskMessageSender {
 			}
 		}; 
 		
-		MorphousTask task = message.payload;
-		HashMap<InetAddress, MorphousTaskResponse> messageResponses = new HashMap<>();
-		messageResponseMap.put(task.taskUuid, messageResponses);
-		morphousTaskMap.put(task.taskUuid, task);
-		
-		for (InetAddress dest : Gossiper.instance.getLiveMembers()) {
-			logger.debug("Sending MorphousTask message {} to destination {}", message, dest);
-			MessagingService.instance().sendRR(message, dest, callback, timeoutInMillis);
-			messageResponses.put(dest, new MorphousTaskResponse());
+		final MorphousTask task = message.payload;
+		synchronized(messageResponseMap) {
+			HashMap<InetAddress, MorphousTaskResponse> messageResponses = new HashMap<>();
+			messageResponseMap.put(task.taskUuid, messageResponses);
+			morphousTaskMap.put(task.taskUuid, task);
+			
+			for (InetAddress dest : Gossiper.instance.getLiveMembers()) {
+				logger.debug("Sending MorphousTask message {} to destination {}", message, dest);
+				MessagingService.instance().sendRR(message, dest, callback, timeoutInMillis);
+				messageResponses.put(dest, new MorphousTaskResponse());
+			}	
 		}
 		
+		logger.debug("About to enter while loop");
 		// Should wait for response to comeback till the timeout is over
 		while (System.currentTimeMillis() < taskStartedAt + timeoutInMillis) {
+			logger.debug("Entered while loop");
+			synchronized(messageResponseMap) {
+				if(isMorphousTaskOver(task.taskUuid)) {
+					logger.info("Morphous Task ended in {} milliseconds", System.currentTimeMillis() - taskStartedAt);
+					final Map<InetAddress, MorphousTaskResponse> responses = messageResponseMap.remove(task.taskUuid);
+					morphousTaskMap.remove(task.taskUuid);
+					
+					// Do this because calling taskIsDone() synchronously will cause it to block all callbacks (deadlock until it times out)
+					new Thread(new Runnable() {
+						@Override
+						public void run() {
+							task.taskIsDone(responses);
+						}
+					}).start();
+					return;
+				}	
+			}
+						
 			try {
 				Thread.sleep(1000);
 			} catch (InterruptedException e) {
 				throw new RuntimeException("Interrupted while wating for the task to finish", e);
 			}
-			synchronized(messageResponseMap) {
-				synchronized (morphousTaskMap) {
-					if(isMorphousTaskOver(task.taskUuid)) {
-						logger.info("Morphous Task ended in {} milliseconds", System.currentTimeMillis() - taskStartedAt);
-						Map<InetAddress, MorphousTaskResponse> responses = messageResponseMap.remove(task.taskUuid);
-						morphousTaskMap.remove(task.taskUuid);
-						
-						task.taskIsDone(responses);
-						return;
-					}
-				}
-			}
 		}
 		
 		// If the task is still sitting there, then it must have timed out!
 		synchronized(messageResponseMap) {
-			synchronized (morphousTaskMap) {
-				logger.warn("Morphous Task {} timed out", task);
-				messageResponseMap.remove(task.taskUuid);
-				morphousTaskMap.remove(task.taskUuid);
-			}
+			logger.warn("Morphous Task {} timed out", task);
+			messageResponseMap.remove(task.taskUuid);
+			morphousTaskMap.remove(task.taskUuid);	
 		}
 		
 	}
@@ -127,6 +130,7 @@ public class MorphousTaskMessageSender {
 		} else {
 			for (MorphousTaskResponse value : messageResponseMap.get(task.taskUuid).values()) {
 				if (value.status != MorphousTaskResponseStatus.SUCCESSFUL) {
+					logger.debug("Morphous Task is not over due to task {}", value);
 					return false;
 				}
 			}
