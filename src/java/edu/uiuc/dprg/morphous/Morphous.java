@@ -1,15 +1,20 @@
 package edu.uiuc.dprg.morphous;
 
+import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.FutureTask;
+
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
-import org.apache.cassandra.config.ColumnDefinition.Type;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowMutation;
 import org.apache.cassandra.db.WriteType;
 import org.apache.cassandra.exceptions.ConfigurationException;
-import org.apache.cassandra.metrics.ColumnFamilyMetrics;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.MigrationManager;
@@ -26,15 +31,7 @@ import org.slf4j.LoggerFactory;
 import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTask;
 import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskCallback;
 import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskResponse;
-import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskResponseStatus;
 import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskType;
-
-import java.net.InetAddress;
-import java.nio.ByteBuffer;
-import java.nio.charset.CharacterCodingException;
-import java.util.Collections;
-import java.util.Map;
-import java.util.concurrent.FutureTask;
 
 /**
  * Created by Daniel on 6/9/14.
@@ -95,15 +92,15 @@ public class Morphous {
     	return new MorphousTaskCallback() {
 			
 			@Override
-			public void callback(MorphousTask task,
-					Map<InetAddress, MorphousTaskResponse> responses) {
-				logger.debug("The InsertMorphousTask {} is done! Now doing the next step...", task);
+			public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
+				logger.debug("The InsertMorphousTask {} is done! Now doing the next step", task);
+				
+				// Create AtomicSwitchMorphousTask
 				MorphousTask newMorphousTask = new MorphousTask();
             	newMorphousTask.taskType = MorphousTaskType.ATOMIC_SWITCH;
             	newMorphousTask.keyspace = task.keyspace;
             	newMorphousTask.columnFamily = task.columnFamily;
             	newMorphousTask.newPartitionKey = task.newPartitionKey;
-            	//TODO TBD for catching up
             	newMorphousTask.callback = null;
             	newMorphousTask.taskStartedAtInMicro = task.taskStartedAtInMicro;
             	
@@ -111,19 +108,8 @@ public class Morphous {
         		ColumnFamilyStore originalCfs = keyspace.getColumnFamilyStore(task.columnFamily);
         		String originalPartitionKey = getPartitionKeyName(originalCfs);
             	migrateColumnFamilyDefinitionToUseNewPartitonKey(task.keyspace, originalCfs.name, task.newPartitionKey);
-            	try {
-					Thread.sleep(2000);
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
             	migrateColumnFamilyDefinitionToUseNewPartitonKey(task.keyspace, tempColumnFamilyName(originalCfs.name), originalPartitionKey);
-            	try {
-					Thread.sleep(2000);
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
+
             	MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(newMorphousTask);
 			}
 		};

@@ -2,10 +2,9 @@ package edu.uiuc.dprg.morphous;
 
 import java.nio.ByteBuffer;
 import java.util.Collection;
-import java.util.Collections;
+
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.DataRange;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Row;
@@ -13,11 +12,7 @@ import org.apache.cassandra.db.RowMutation;
 import org.apache.cassandra.db.TreeMapBackedSortedColumns;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
-import org.apache.cassandra.exceptions.InvalidRequestException;
-import org.apache.cassandra.exceptions.OverloadedException;
-import org.apache.cassandra.exceptions.UnavailableException;
-import org.apache.cassandra.exceptions.WriteTimeoutException;
-import org.apache.cassandra.service.StorageProxy;
+import org.apache.cassandra.service.StorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,10 +36,9 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 		ColumnFamilyStore originalCfs = Keyspace.open(task.keyspace).getColumnFamilyStore(task.columnFamily); 
 		// Disable compaction on original table, since we only want to catch up the SSTables modified after this moment. 
 		originalCfs.disableAutoCompaction();
+		// TODO Maybe a good idea to flush here?
 		
-		// TODO Change Insert Statement to RowMutation Message to single destination node
-//		List<Range<Token>> ranges = (List<Range<Token>>) StorageService.instance.getPrimaryRangesForEndpoint(task.keyspace, FBUtilities.getBroadcastAddress());		
-		Collection<Range<Token>> ranges = Util.getNthRangesForLocalNode(task.keyspace, 1);
+		Collection<Range<Token>> ranges = StorageService.instance.getLocalRanges(task.keyspace);
 		try {
 			insertLocalRangesOnTemporaryCF(task.keyspace, task.columnFamily, Morphous.tempColumnFamilyName(task.columnFamily), task.newPartitionKey	, ranges);
 		} catch (Exception e) {
@@ -75,13 +69,8 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 				
 				RowMutation rm = new RowMutation(newKey, tempData);
 				
-				try {
-					StorageProxy.mutateWithTriggers(Collections.singletonList(rm), ConsistencyLevel.QUORUM, false);
-					count++;
-				} catch (WriteTimeoutException | UnavailableException
-						| OverloadedException | InvalidRequestException e) {
-					throw new RuntimeException("Failed during inserting into temporary table.", e);
-				}
+				int destinationReplicaIndex =  edu.uiuc.dprg.morphous.Util.getReplicaIndexForKey(ksName, row.key.key);
+				Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
 			}
 		}
 		logger.info("Inserted {} rows into Keyspace {}, ColumnFamily {}", count, ksName, tempCfName);
