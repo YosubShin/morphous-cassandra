@@ -145,6 +145,7 @@ public class MorphousTaskMessageSender {
 		public String columnFamily;
 		public String newPartitionKey;
 		public MorphousTaskCallback callback;
+		public Long taskStartedAtInMicro;
 		
 		public static final IVersionedSerializer<MorphousTask> serializer = new IVersionedSerializer<MorphousTaskMessageSender.MorphousTask>() {
 			
@@ -156,6 +157,7 @@ public class MorphousTaskMessageSender {
 				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.keyspace));
 				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.columnFamily));
 				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.newPartitionKey));
+				size += TypeSizes.NATIVE.sizeof(t.taskStartedAtInMicro);
 				return size;
 			}
 			
@@ -167,6 +169,7 @@ public class MorphousTaskMessageSender {
 				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.keyspace), out);
 				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.columnFamily), out);
 				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.newPartitionKey), out);
+				out.writeLong(t.taskStartedAtInMicro);
 			}
 			
 			@Override
@@ -179,6 +182,7 @@ public class MorphousTaskMessageSender {
 				result.keyspace = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
 				result.columnFamily = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
 				result.newPartitionKey = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
+				result.taskStartedAtInMicro = in.readLong();
 				
 				logger.debug("deserialized MorphousTask : {}", result);
 				return result;

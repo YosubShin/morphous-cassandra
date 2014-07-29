@@ -38,6 +38,11 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 		response.status = MorphousTaskResponseStatus.SUCCESSFUL;
 		response.taskUuid = task.taskUuid;
 		
+		ColumnFamilyStore originalCfs = Keyspace.open(task.keyspace).getColumnFamilyStore(task.columnFamily); 
+		// Disable compaction on original table, since we only want to catch up the SSTables modified after this moment. 
+		originalCfs.disableAutoCompaction();
+		
+		// TODO Change Insert Statement to RowMutation Message to single destination node
 //		List<Range<Token>> ranges = (List<Range<Token>>) StorageService.instance.getPrimaryRangesForEndpoint(task.keyspace, FBUtilities.getBroadcastAddress());		
 		Collection<Range<Token>> ranges = Util.getNthRangesForLocalNode(task.keyspace, 1);
 		try {
@@ -53,7 +58,7 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 	public void insertLocalRangesOnTemporaryCF(String ksName, String originalCfName, String tempCfName, String newPartitionKey, Collection<Range<Token>> ranges) {
 		int count = 0;
 		ColumnFamilyStore originalCfs = Keyspace.open(ksName).getColumnFamilyStore(originalCfName);
-		ByteBuffer oldPartitionKeyName = Util.getColumnNameByteBuffer(originalCfs.metadata.partitionKeyColumns().get(0).name);
+		ByteBuffer oldPartitionKeyName = Util.getColumnNameByteBuffer(originalCfs.metadata.partitionKeyColumns().get(0).name.asReadOnlyBuffer());
 		for (Range<Token> range : ranges) {
 			ColumnFamilyStore.AbstractScanIterator iterator = Util.invokePrivateMethodWithReflection(originalCfs, "getSequentialIterator", DataRange.forKeyRange(range), System.currentTimeMillis());
 			

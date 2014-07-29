@@ -4,10 +4,16 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.config.ColumnDefinition.Type;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.ConsistencyLevel;
 import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.RowMutation;
+import org.apache.cassandra.db.WriteType;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.metrics.ColumnFamilyMetrics;
+import org.apache.cassandra.net.MessageOut;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.service.WriteResponseHandler;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.cassandra.utils.FBUtilities;
 import org.apache.cassandra.utils.WrappedRunnable;
@@ -26,6 +32,7 @@ import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskType;
 import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.FutureTask;
 
@@ -69,6 +76,7 @@ public class Morphous {
                 	morphousTask.columnFamily = columnFamily;
                 	morphousTask.newPartitionKey = config.columnName;
                 	morphousTask.callback = getInsertMorphousTaskCallback();
+                	morphousTask.taskStartedAtInMicro = System.currentTimeMillis() * 1000;
                 	MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(morphousTask);
                 } catch(Exception e) {
                     logger.error("Execption occurred {}", e);
@@ -79,6 +87,10 @@ public class Morphous {
         }, null);
     }
     
+    /**
+     * Get callback for the InsertMorphousTask. It should generate the next stage MorphousTask.
+     * @return
+     */
     public MorphousTaskCallback getInsertMorphousTaskCallback() {
     	return new MorphousTaskCallback() {
 			
@@ -93,13 +105,25 @@ public class Morphous {
             	newMorphousTask.newPartitionKey = task.newPartitionKey;
             	//TODO TBD for catching up
             	newMorphousTask.callback = null;
+            	newMorphousTask.taskStartedAtInMicro = task.taskStartedAtInMicro;
             	
             	Keyspace keyspace = Keyspace.open(task.keyspace);
         		ColumnFamilyStore originalCfs = keyspace.getColumnFamilyStore(task.columnFamily);
-        		String originalPartitionKey = getOriginalPartitionKeyName(originalCfs);
+        		String originalPartitionKey = getPartitionKeyName(originalCfs);
             	migrateColumnFamilyDefinitionToUseNewPartitonKey(task.keyspace, originalCfs.name, task.newPartitionKey);
+            	try {
+					Thread.sleep(2000);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
             	migrateColumnFamilyDefinitionToUseNewPartitonKey(task.keyspace, tempColumnFamilyName(originalCfs.name), originalPartitionKey);
-            	
+            	try {
+					Thread.sleep(2000);
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
             	MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(newMorphousTask);
 			}
 		};
@@ -118,10 +142,18 @@ public class Morphous {
     	return "temp_" + originalCfName;
     }
     
-    public static String getOriginalPartitionKeyName(ColumnFamilyStore cfs) {
+    public static ByteBuffer getPartitionKeyNameByteBuffer(ColumnFamilyStore cfs) {
+		return getPartitionKeyNameByteBuffer(cfs.metadata);
+    }
+    
+    public static ByteBuffer getPartitionKeyNameByteBuffer(CFMetaData metadata) {
+		return ((ByteBuffer) metadata.partitionKeyColumns().get(0).name.asReadOnlyBuffer());
+    }
+    
+    public static String getPartitionKeyName(ColumnFamilyStore cfs) {
     	String originalPartitionKey = null;
 		try {
-			originalPartitionKey = ByteBufferUtil.string(((ByteBuffer) cfs.metadata.partitionKeyColumns().get(0).name.rewind()).asReadOnlyBuffer());
+			originalPartitionKey = ByteBufferUtil.string(getPartitionKeyNameByteBuffer(cfs));
 			return originalPartitionKey;
 		} catch (CharacterCodingException e) {
 			throw new MorphousException("Unable to decode partition key's name", e);
@@ -173,16 +205,14 @@ public class Morphous {
 	    ColumnDefinition newPartitionKeyColumn = null;
 	    for (ColumnDefinition columnDefinition : meta.allColumns()) {
 	        try {
-	        	//TODO Weird why do I need to rewind() here? Apparently without this the partition key 'id' becomes pointing to back.
-	        	columnDefinition.name.rewind();
 	            String deserializedColumnName = ByteBufferUtil.string(columnDefinition.name.asReadOnlyBuffer());
 	            logger.debug("ColumnDefinition for column {} : {}", deserializedColumnName, columnDefinition);
 	            if (columnDefinition.type == ColumnDefinition.Type.PARTITION_KEY) {
 	            	// Change old partiton key to regular column
-	            	newRegularColumn = new ColumnDefinition(columnDefinition.name.duplicate(), columnDefinition.getValidator(), 0, ColumnDefinition.Type.REGULAR);
+	            	newRegularColumn = new ColumnDefinition(columnDefinition.name.asReadOnlyBuffer(), columnDefinition.getValidator(), 0, ColumnDefinition.Type.REGULAR);
 	            } else if (deserializedColumnName.equals(newPartitionKey)) {
 	            	// Change old regular column that matches newPartitionKeyName to new PartitonKey 
-	                newPartitionKeyColumn = new ColumnDefinition(columnDefinition.name.duplicate(), columnDefinition.getValidator(), null, ColumnDefinition.Type.PARTITION_KEY);
+	                newPartitionKeyColumn = new ColumnDefinition(columnDefinition.name.asReadOnlyBuffer(), columnDefinition.getValidator(), null, ColumnDefinition.Type.PARTITION_KEY);
 	            }
 	        } catch (CharacterCodingException e) {
 	            throw new RuntimeException(e);
@@ -217,6 +247,18 @@ public class Morphous {
 		logger.info("About to announce change on partition key with RowMutation = {}", rm);
 		edu.uiuc.dprg.morphous.Util.invokePrivateMethodWithReflection(
 				MigrationManager.instance, "announce", rm);
+	}
+
+	/**
+	 * 
+	 * @param rm
+	 * @param n one-based number that represents what replication order it has
+	 */
+	public static void sendRowMutationToNthReplicaNode(RowMutation rm, int n) {
+		InetAddress destinationNode = edu.uiuc.dprg.morphous.Util.getNthReplicaNodeForKey(rm.getKeyspaceName(), rm.key(), n);
+		MessageOut<RowMutation> message = rm.createMessage();
+		WriteResponseHandler handler = new WriteResponseHandler(Collections.singletonList(destinationNode), Collections.<InetAddress> emptyList(), ConsistencyLevel.ONE, Keyspace.open(rm.getKeyspaceName()), null, WriteType.SIMPLE); 
+		MessagingService.instance().sendRR(message, destinationNode, handler, false); //TODO Maybe use more robust way to send message
 	}
 
 	public static class MorphousConfiguration {

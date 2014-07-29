@@ -22,9 +22,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -33,22 +37,37 @@ import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.Util;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.KSMetaData;
+import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.ColumnFamilyType;
+import org.apache.cassandra.db.DataRange;
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.OnDiskAtom;
 import org.apache.cassandra.db.Row;
 import org.apache.cassandra.db.RowMutation;
+import org.apache.cassandra.db.TreeMapBackedSortedColumns;
+import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.filter.QueryFilter;
 import org.apache.cassandra.db.marshal.BytesType;
+import org.apache.cassandra.dht.Range;
+import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.io.sstable.SSTableReader;
+import org.apache.cassandra.io.sstable.SSTableScanner;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.SimpleStrategy;
+import org.apache.cassandra.locator.TokenMetadata;
+import org.apache.cassandra.net.MessageOut;
+import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.MigrationManager;
+import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.CqlResult;
 import org.apache.cassandra.thrift.CqlRow;
 import org.apache.cassandra.thrift.SlicePredicate;
 import org.apache.cassandra.thrift.ThriftValidation;
 import org.apache.cassandra.utils.ByteBufferUtil;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -330,4 +349,30 @@ public class MoveSSTableTest extends CqlTestBase
         	assertEquals(1, selectCf.rows.size());
         }        
 	}
+	
+	
+	@Deprecated
+    @SuppressWarnings("rawtypes")
+	public static void doInsertOnTemporaryCFForRangesChoosingEndpointManually(String ksName, String originalCfName, String tempCfName, Collection<Range<Token>> ranges) {
+    	for (Range<Token> range : ranges) {
+    		ColumnFamilyStore originalCfs = Keyspace.open(ksName).getColumnFamilyStore(originalCfName);
+    		ColumnFamilyStore tempCfs = Keyspace.open(ksName).getColumnFamilyStore(originalCfName);
+    		ColumnFamilyStore.AbstractScanIterator iterator = edu.uiuc.dprg.morphous.Util.invokePrivateMethodWithReflection(originalCfs, "getSequentialIterator", DataRange.forKeyRange(range), System.currentTimeMillis());
+    		
+    		while (iterator.hasNext()) {
+    			Row row = iterator.next();
+    			ColumnFamily data = row.cf;
+    			ColumnFamily tempData = TreeMapBackedSortedColumns.factory.create(ksName, tempCfName);
+    			tempData.addAll(data, null);
+    			
+    			ByteBuffer newKey = tempData.getColumn(tempData.metadata().partitionKeyColumns().get(0).name.asReadOnlyBuffer()).value();
+    			InetAddress destinationNode = edu.uiuc.dprg.morphous.Util.getNthReplicaNodeForKey(ksName, newKey, 1);
+    			
+    			RowMutation rm = new RowMutation(newKey, tempData);
+    			MessageOut<RowMutation> message = rm.createMessage();
+    			MessagingService.instance().sendRR(message, destinationNode); //TODO Maybe use more robust way to send message
+    		}
+    	}
+    }
+    
 }

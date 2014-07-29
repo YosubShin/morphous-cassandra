@@ -1,9 +1,14 @@
 package edu.uiuc.dprg.morphous;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -11,14 +16,23 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.cassandra.config.CFMetaData;
+import org.apache.cassandra.config.ColumnDefinition;
+import org.apache.cassandra.db.Column;
+import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;
+import org.apache.cassandra.db.DecoratedKey;
 import org.apache.cassandra.db.Directories;
 import org.apache.cassandra.db.Keyspace;
+import org.apache.cassandra.db.OnDiskAtom;
 import org.apache.cassandra.db.RowMutation;
+import org.apache.cassandra.db.TreeMapBackedSortedColumns;
+import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
+import org.apache.cassandra.io.sstable.SSTable;
 import org.apache.cassandra.io.sstable.SSTableReader;
+import org.apache.cassandra.io.sstable.SSTableScanner;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.service.MigrationManager;
 import org.apache.cassandra.utils.ByteBufferUtil;
@@ -55,13 +69,45 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 			tempCfs.reload();
 			
 			// Trigger more catch up on last minute changes
-			
+			replayRecentSstablesAtTempColumnFamily(originalCfs, tempCfs, task.taskStartedAtInMicro);
 		} finally {
 			// TODO Unblock local writes
-		}
+		}		
 		
 		logger.debug("AtomcSwitchMorphousTask {} finished in {} ms, and generated response : {}", task, System.currentTimeMillis() - startAt, response);
 		return response;
+	}
+	
+	public void replayRecentSstablesAtTempColumnFamily(ColumnFamilyStore originalCfs, ColumnFamilyStore tempCfs, long replayAfterInMicro) {
+		// Filter only SSTables that's newer than replayAfter value
+		List<SSTableReader> sstables = new ArrayList<SSTableReader>();
+		for (SSTableReader sstable : tempCfs.getSSTables()) {
+			if (sstable.getMaxTimestamp() > replayAfterInMicro) {
+				sstables.add(sstable);
+			}
+		}
+		// Sort SSTableReaders by chronological order
+		Collections.sort(sstables, SSTable.maxTimestampComparator);
+		
+		for (SSTableReader sstable : sstables) {
+			SSTableScanner scanner = sstable.getScanner();
+			while (scanner.hasNext()) {
+				OnDiskAtomIterator onDiskAtomIterator = scanner.next();
+				DecoratedKey tempKey = onDiskAtomIterator.getKey();
+	        	ColumnFamily cf = TreeMapBackedSortedColumns.factory.create(originalCfs.metadata);
+	        	// Add partition key Column of Temp table into the newly created ColumnFamily
+	        	cf.addColumn(new Column(edu.uiuc.dprg.morphous.Util.getColumnNameByteBuffer(Morphous.getPartitionKeyNameByteBuffer(tempCfs)), ((ByteBuffer) tempKey.key.rewind()).asReadOnlyBuffer()));
+	        	
+	        	while (onDiskAtomIterator.hasNext()) {
+	        		cf.addAtom(onDiskAtomIterator.next());
+	        	}
+	        	RowMutation rm = new RowMutation(edu.uiuc.dprg.morphous.Util.getKeyByteBufferForCf(cf), cf);
+	        	
+	        	int destinationReplicaIndex =  edu.uiuc.dprg.morphous.Util.getReplicaIndexForKey(tempCfs.keyspace.getName(), tempKey.key);
+	        	Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
+			}
+		}
+		
 	}
 	
 	

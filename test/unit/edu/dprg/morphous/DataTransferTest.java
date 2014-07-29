@@ -121,51 +121,7 @@ public class DataTransferTest extends CqlTestBase {
   		
   		result = Util.executeCql3Statement("SELECT * FROM " + ksName + "." + tempCfName);
   		assertEquals(1000, result.rows.size());
-      }
-    
-    @Deprecated
-    @SuppressWarnings("rawtypes")
-	public static void doInsertOnTemporaryCFForRangesChoosingEndpointManually(String ksName, String originalCfName, String tempCfName, Collection<Range<Token>> ranges) {
-    	for (Range<Token> range : ranges) {
-    		ColumnFamilyStore originalCfs = Keyspace.open(ksName).getColumnFamilyStore(originalCfName);
-    		ColumnFamilyStore tempCfs = Keyspace.open(ksName).getColumnFamilyStore(originalCfName);
-    		ColumnFamilyStore.AbstractScanIterator iterator = Util.invokePrivateMethodWithReflection(originalCfs, "getSequentialIterator", DataRange.forKeyRange(range), System.currentTimeMillis());
-    		
-    		while (iterator.hasNext()) {
-    			Row row = iterator.next();
-    			ColumnFamily data = row.cf;
-    			ColumnFamily tempData = TreeMapBackedSortedColumns.factory.create(ksName, tempCfName);
-    			tempData.addAll(data, null);
-    			
-    			ByteBuffer newKey = tempData.getColumn(tempData.metadata().partitionKeyColumns().get(0).name).value();
-    			InetAddress destinationNode = getDestinationNodeForKey(newKey);
-    			
-    			RowMutation rm = new RowMutation(newKey, tempData);
-    			MessageOut<RowMutation> message = rm.createMessage();
-    			MessagingService.instance().sendRR(message, destinationNode); //TODO Maybe use more robust way to send message
-    		}
-    	}
     }
     
-    @Deprecated
-    @SuppressWarnings("rawtypes")
-	public static InetAddress getDestinationNodeForKey(ByteBuffer value) {
-        try {
-			logger.debug("Looking for new destination value for value : {}", ByteBufferUtil.string(value));
-		} catch (CharacterCodingException e) {
-			throw new RuntimeException(e);
-		}
-        // Mimics SimpleStrategy's implementation
-        Token token = StorageService.getPartitioner().getToken(value);
-        TokenMetadata metadata = StorageService.instance.getTokenMetadata();
-        ArrayList<Token> tokens = metadata.sortedTokens();
-        Iterator<Token> iter = TokenMetadata.ringIterator(tokens, token, false);
 
-        // Pick the node after the primary node.(Secondary node)
-        Token primaryToken = iter.next();
-
-        InetAddress endpoint = metadata.getEndpoint(primaryToken);
-        logger.debug("Token : {}, sorted tokens : {}, primary Token : {}, endpoint : {}", token, tokens, primaryToken, endpoint);
-        return endpoint;
-    }
 }

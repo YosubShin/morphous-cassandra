@@ -13,9 +13,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 
 import org.apache.cassandra.SchemaLoader;
+import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnFamily;
@@ -144,7 +146,7 @@ public class Util {
 	    AbstractReplicationStrategy strategy = Keyspace.open(keyspace).getReplicationStrategy();
 	    Collection<Range<Token>> nthRanges = new HashSet<Range<Token>>();
 	    
-	    TokenMetadata metadata = ((TokenMetadata) getPrivateFieldWithReflection(StorageService.instance, "tokenMetadata")).cloneOnlyTokenMap();
+	    TokenMetadata metadata = StorageService.instance.getTokenMetadata();
 	                    
 	    for (Token token : metadata.sortedTokens())
 	    {
@@ -154,6 +156,37 @@ public class Util {
 	    }
 	    return nthRanges;
 	}
+	
+    @SuppressWarnings("rawtypes")
+	public static InetAddress getNthReplicaNodeForKey(String ksName, ByteBuffer value, int n) {
+    	logger.debug("Looking for new destination value for value : {}", edu.uiuc.dprg.morphous.Util.toStringByteBuffer(value));
+        // Mimics SimpleStrategy's implementation
+        Token token = StorageService.getPartitioner().getToken(value);
+        TokenMetadata metadata = StorageService.instance.getTokenMetadata();
+        AbstractReplicationStrategy strategy = Keyspace.open(ksName).getReplicationStrategy();
+        
+        List<InetAddress> endpoints = strategy.calculateNaturalEndpoints(token, metadata);
+        if (n > endpoints.size()) {
+        	throw new MorphousException("n exceeds the replication factor");
+        }
+        
+        return endpoints.get(n - 1);
+    }
+    
+    @SuppressWarnings("rawtypes")
+    public static int getReplicaIndexForKey(String ksName, ByteBuffer value) {
+    	Token token = StorageService.getPartitioner().getToken(value);
+        TokenMetadata metadata = StorageService.instance.getTokenMetadata();
+        AbstractReplicationStrategy strategy = Keyspace.open(ksName).getReplicationStrategy();
+        
+        List<InetAddress> endpoints = strategy.calculateNaturalEndpoints(token, metadata);
+        for (int i = 0; i < endpoints.size(); i++) {
+        	if (endpoints.get(i).equals(FBUtilities.getBroadcastAddress())) {
+        		return i;
+        	}
+        }
+    	throw new MorphousException("No proper index for this key");
+    }
 
 	public static Cassandra.Client getClient() throws TTransportException
 	{
@@ -177,7 +210,7 @@ public class Util {
 		StringBuilder sb = new StringBuilder();
 		ByteBuffer bb = inBb.asReadOnlyBuffer();
 		Class<?> type = null;
-		if (typeArray.length > 0) {
+		if (typeArray != null && typeArray.length > 0) {
 			type = (Class<?>) typeArray[0];
 			if (type.equals(String.class)) {
 				try {
@@ -245,6 +278,11 @@ public class Util {
 			}	
 		}
 		return sb.toString();
+	}
+
+	public static ByteBuffer getKeyByteBufferForCf(ColumnFamily cf) {
+		CFMetaData metadata = cf.metadata();
+		return cf.getColumn(getColumnNameByteBuffer(Morphous.getPartitionKeyNameByteBuffer(metadata))).value();
 	}
 
 }
