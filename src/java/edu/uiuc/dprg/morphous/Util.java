@@ -13,10 +13,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 
-import org.apache.cassandra.SchemaLoader;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.DatabaseDescriptor;
 import org.apache.cassandra.db.Column;
@@ -29,7 +27,6 @@ import org.apache.cassandra.locator.AbstractReplicationStrategy;
 import org.apache.cassandra.locator.TokenMetadata;
 import org.apache.cassandra.service.StorageService;
 import org.apache.cassandra.thrift.Cassandra;
-import org.apache.cassandra.thrift.Cassandra.Client;
 import org.apache.cassandra.thrift.Compression;
 import org.apache.cassandra.thrift.ConsistencyLevel;
 import org.apache.cassandra.thrift.CqlResult;
@@ -48,7 +45,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.primitives.Primitives;
 
 public class Util {
-	private static Logger logger = LoggerFactory.getLogger(SchemaLoader.class);
+	private static Logger logger = LoggerFactory.getLogger(Util.class);
 
 	public static String toStringCF(ColumnFamily data) {
 		StringBuilder builder = new StringBuilder();
