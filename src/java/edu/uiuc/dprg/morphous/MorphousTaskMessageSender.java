@@ -128,9 +128,10 @@ public class MorphousTaskMessageSender {
 		if (task == null || !messageResponseMap.containsKey(task.taskUuid)) {
 			return true;
 		} else {
-			for (MorphousTaskResponse value : messageResponseMap.get(task.taskUuid).values()) {
+			for (Entry<InetAddress, MorphousTaskResponse> entry : messageResponseMap.get(task.taskUuid).entrySet()) {
+				MorphousTaskResponse value = entry.getValue();
 				if (value.status != MorphousTaskResponseStatus.SUCCESSFUL) {
-					logger.debug("Morphous Task is not over due to task {}", value);
+					logger.debug("Morphous Task is not over due to node : {}, task {}", entry.getKey(), value);
 					return false;
 				}
 			}
