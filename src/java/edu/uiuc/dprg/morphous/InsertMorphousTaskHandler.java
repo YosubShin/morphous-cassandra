@@ -2,7 +2,10 @@ package edu.uiuc.dprg.morphous;
 
 import java.nio.ByteBuffer;
 import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
 
+import com.google.common.collect.Iterables;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;
 import org.apache.cassandra.db.DataRange;
@@ -10,6 +13,7 @@ import org.apache.cassandra.db.Keyspace;
 import org.apache.cassandra.db.Row;
 import org.apache.cassandra.db.RowMutation;
 import org.apache.cassandra.db.TreeMapBackedSortedColumns;
+import org.apache.cassandra.dht.LongToken;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.service.StorageService;
@@ -42,6 +46,7 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 		try {
 			insertLocalRangesOnTemporaryCF(task.keyspace, task.columnFamily, Morphous.tempColumnFamilyName(task.columnFamily), task.newPartitionKey	, ranges);
 		} catch (Exception e) {
+			logger.error("Error while inserting local ranges", e);
 			response.message = Throwables.getStackTraceAsString(e);
 			response.status = MorphousTaskResponseStatus.FAILED;
 		}
@@ -51,11 +56,31 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 	@SuppressWarnings("rawtypes")
 	public void insertLocalRangesOnTemporaryCF(String ksName, String originalCfName, String tempCfName, String newPartitionKey, Collection<Range<Token>> ranges) {
 		int count = 0;
-		ColumnFamilyStore originalCfs = Keyspace.open(ksName).getColumnFamilyStore(originalCfName);
+		final ColumnFamilyStore originalCfs = Keyspace.open(ksName).getColumnFamilyStore(originalCfName);
 		ByteBuffer oldPartitionKeyName = Util.getColumnNameByteBuffer(originalCfs.metadata.partitionKeyColumns().get(0).name.asReadOnlyBuffer());
-		for (Range<Token> range : ranges) {
-			ColumnFamilyStore.AbstractScanIterator iterator = Util.invokePrivateMethodWithReflection(originalCfs, "getSequentialIterator", DataRange.forKeyRange(range), System.currentTimeMillis());
-			
+		for (final Range<Token> range : ranges) {
+			logger.debug("Getting AbstractScanIterator for local Range {} for insertion", range);
+            logger.debug("Is wraparound={}", range.isWrapAround());
+            Iterator<Row> iterator;
+            if (range.isWrapAround()) {
+                final List<Range<Token>> unwrappedRanges = range.unwrap();
+                iterator = Iterables.concat(
+                        new Iterable<Row>() {
+                            @Override
+                            public Iterator<Row> iterator() {
+                                return Util.invokePrivateMethodWithReflection(originalCfs, "getSequentialIterator", DataRange.forKeyRange(unwrappedRanges.get(0)), System.currentTimeMillis());
+                            }
+                        },
+                        new Iterable<Row>() {
+                            @Override
+                            public Iterator<Row> iterator() {
+                                return Util.invokePrivateMethodWithReflection(originalCfs, "getSequentialIterator", DataRange.forKeyRange(unwrappedRanges.get(1)), System.currentTimeMillis());
+                            }
+                        }).iterator();
+            } else {
+                iterator = Util.invokePrivateMethodWithReflection(originalCfs, "getSequentialIterator", DataRange.forKeyRange(range), System.currentTimeMillis());
+            }
+
 			while (iterator.hasNext()) {
 				Row row = iterator.next();
 				ColumnFamily data = row.cf;
@@ -71,6 +96,7 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 				
 				int destinationReplicaIndex =  edu.uiuc.dprg.morphous.Util.getReplicaIndexForKey(ksName, row.key.key);
 				Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
+                count++;
 			}
 		}
 		logger.info("Inserted {} rows into Keyspace {}, ColumnFamily {}", count, ksName, tempCfName);
