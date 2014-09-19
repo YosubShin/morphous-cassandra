@@ -1,19 +1,12 @@
 package edu.uiuc.dprg.morphous;
 
-import java.net.InetAddress;
-import java.nio.ByteBuffer;
-import java.nio.charset.CharacterCodingException;
-import java.util.Collections;
-import java.util.Map;
-import java.util.concurrent.FutureTask;
-
+import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTask;
+import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskCallback;
+import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskResponse;
+import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskType;
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
-import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.ConsistencyLevel;
-import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.db.RowMutation;
-import org.apache.cassandra.db.WriteType;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.exceptions.ConfigurationException;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
@@ -28,10 +21,12 @@ import org.json.simple.parser.ParseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTask;
-import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskCallback;
-import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskResponse;
-import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskType;
+import java.net.InetAddress;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.FutureTask;
 
 /**
  * Created by Daniel on 6/9/14.
@@ -65,6 +60,10 @@ public class Morphous {
                 String message = String.format("Starting morphous command for keyspace %s, column family %s, configuration %s", keyspace, columnFamily, config.toString());
                 logger.info(message);
                 try {
+                    Keyspace ks = Keyspace.open(keyspace);
+                    ColumnFamilyStore cfs = ks.getColumnFamilyStore(columnFamily);
+                    cfs.forceMajorCompaction();
+
                 	createTempColumnFamily(keyspace, columnFamily, config.columnName);
                 	
                 	MorphousTask morphousTask = new MorphousTask();
@@ -240,10 +239,11 @@ public class Morphous {
 	 * @param rm
 	 * @param n one-based number that represents what replication order it has
 	 */
+    @Deprecated
 	public static void sendRowMutationToNthReplicaNode(RowMutation rm, int n) {
 		InetAddress destinationNode = edu.uiuc.dprg.morphous.Util.getNthReplicaNodeForKey(rm.getKeyspaceName(), rm.key(), n);
 		MessageOut<RowMutation> message = rm.createMessage();
-		WriteResponseHandler handler = new WriteResponseHandler(Collections.singletonList(destinationNode), Collections.<InetAddress> emptyList(), ConsistencyLevel.ONE, Keyspace.open(rm.getKeyspaceName()), null, WriteType.SIMPLE); 
+		WriteResponseHandler handler = new WriteResponseHandler(Collections.singletonList(destinationNode), Collections.<InetAddress> emptyList(), ConsistencyLevel.ONE, Keyspace.open(rm.getKeyspaceName()), null, WriteType.SIMPLE);
 		MessagingService.instance().sendRR(message, destinationNode, handler, false); //TODO Maybe use more robust way to send message
 	}
 

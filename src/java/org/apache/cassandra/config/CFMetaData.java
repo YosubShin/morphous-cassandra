@@ -281,6 +281,27 @@ public final class CFMetaData
                                                                  + "PRIMARY KEY (id)"
                                                                  + ") WITH COMMENT='show all compaction history' AND DEFAULT_TIME_TO_LIVE=604800");
 
+    public static final CFMetaData MorphousStatusCf = compile("CREATE TABLE " + SystemKeyspace.MORPHOUS_STATUS_CF + " (" +
+                    "  keyspace_name text,\n" +
+                    "  columnfamily_name text,\n" +
+                    "  swapping boolean,\n" +
+                    "  PRIMARY KEY (keyspace_name, columnfamily_name)\n" +
+                    ") WITH\n" +
+                    "  bloom_filter_fp_chance=0.010000 AND\n" +
+                    "  caching='KEYS_ONLY' AND\n" +
+                    "  comment='ColumnFamily definitions' AND\n" +
+                    "  dclocal_read_repair_chance=0.000000 AND\n" +
+                    "  gc_grace_seconds=8640 AND\n" +
+                    "  index_interval=128 AND\n" +
+                    "  read_repair_chance=0.000000 AND\n" +
+                    "  replicate_on_write='true' AND\n" +
+                    "  populate_io_cache_on_flush='false' AND\n" +
+                    "  default_time_to_live=0 AND\n" +
+                    "  speculative_retry='99.0PERCENTILE' AND\n" +
+                    "  memtable_flush_period_in_ms=3600000 AND\n" +
+                    "  compaction={'class': 'SizeTieredCompactionStrategy'} AND\n" +
+                    "  compression={'sstable_compression': 'LZ4Compressor'};");
+
     public enum Caching
     {
         ALL, KEYS_ONLY, ROWS_ONLY, NONE;

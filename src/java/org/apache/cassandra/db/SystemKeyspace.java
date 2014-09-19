@@ -83,6 +83,8 @@ public class SystemKeyspace
     public static final String SSTABLE_ACTIVITY_CF = "sstable_activity";
     public static final String COMPACTION_HISTORY_CF = "compaction_history";
 
+    public static final String MORPHOUS_STATUS_CF = "morphous_status";
+
     private static final String LOCAL_KEY = "local";
     private static final ByteBuffer ALL_LOCAL_NODE_ID_KEY = ByteBufferUtil.bytes("Local");
 
