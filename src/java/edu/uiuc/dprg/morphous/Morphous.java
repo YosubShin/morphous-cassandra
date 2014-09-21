@@ -82,6 +82,19 @@ public class Morphous {
             }
         }, null);
     }
+
+    public void setWriteLockOnColumnFamily(String ksName, String columnFamily, boolean locked) {
+        logger.info("Locking/Unlocking Keysapce {}, ColumnFamily {}. isLocked = {}", ksName, columnFamily, locked);
+        RowMutation rm = new RowMutation(Keyspace.SYSTEM_KS, SystemKeyspace.getSchemaKSKey(ksName));
+        ColumnFamily cf = rm.addOrGet(CFMetaData.MorphousStatusCf);
+        long timestamp = FBUtilities.timestampMicros() + 1;
+
+        cf.addColumn(Column.create("", timestamp, columnFamily, "")); // Since column family name is part of composite key
+        cf.addColumn(Column.create(locked, timestamp, columnFamily, "swapping"));
+        // No need to include keyspace because it's partition key itself
+
+        Util.invokePrivateMethodWithReflection(MigrationManager.instance, "announce", rm);
+    }
     
     /**
      * Get callback for the InsertMorphousTask. It should generate the next stage MorphousTask.
@@ -100,18 +113,33 @@ public class Morphous {
             	newMorphousTask.keyspace = task.keyspace;
             	newMorphousTask.columnFamily = task.columnFamily;
             	newMorphousTask.newPartitionKey = task.newPartitionKey;
-            	newMorphousTask.callback = null;
+            	newMorphousTask.callback = getAtomicSwitchTaskCallback();
             	newMorphousTask.taskStartedAtInMicro = task.taskStartedAtInMicro;
             	
             	Keyspace keyspace = Keyspace.open(task.keyspace);
         		ColumnFamilyStore originalCfs = keyspace.getColumnFamilyStore(task.columnFamily);
         		String originalPartitionKey = getPartitionKeyName(originalCfs);
+                // Put lock on write requests on this column family
+                setWriteLockOnColumnFamily(task.keyspace, task.columnFamily, true);
             	migrateColumnFamilyDefinitionToUseNewPartitonKey(task.keyspace, originalCfs.name, task.newPartitionKey);
             	migrateColumnFamilyDefinitionToUseNewPartitonKey(task.keyspace, tempColumnFamilyName(originalCfs.name), originalPartitionKey);
 
             	MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(newMorphousTask);
 			}
 		};
+    }
+
+    public MorphousTaskCallback getAtomicSwitchTaskCallback() {
+        return new MorphousTaskCallback() {
+
+            @Override
+            public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
+                logger.debug("The AtomicSwitchMorphousTask {} is done! Now doing the next step", task);
+
+                // Unlock write lock on this column family
+                setWriteLockOnColumnFamily(task.keyspace, task.columnFamily, false);
+            }
+        };
     }
     
     public void createTempColumnFamily(String ksName, String oldCfName, String newPartitionKey) {

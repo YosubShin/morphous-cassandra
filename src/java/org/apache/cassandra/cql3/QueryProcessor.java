@@ -155,6 +155,17 @@ public class QueryProcessor implements QueryHandler
         statement.checkAccess(clientState);
         statement.validate(clientState);
 
+        // Check for system.morphous_status table and see if swapping value is true
+        if (statement instanceof UpdateStatement) {
+            String keyspace = ((UpdateStatement) statement).keyspace();
+            String columnFamily = ((UpdateStatement) statement).columnFamily();
+            UntypedResultSet result = processInternal(String.format("select swapping from system.morphous_status where keyspace_name = '%s' and columnfamily_name = '%s';", keyspace, columnFamily));
+            if (!result.isEmpty() && result.one().getBoolean("swapping")) {
+                logger.debug("Drop an UpdateStatement {} on Keyspace {}, ColumnFamily {} because swapping is on", statement, keyspace, columnFamily);
+                return new ResultMessage.Void();
+            }
+        }
+
         ResultMessage result = statement.execute(queryState, options);
         return result == null ? new ResultMessage.Void() : result;
     }
