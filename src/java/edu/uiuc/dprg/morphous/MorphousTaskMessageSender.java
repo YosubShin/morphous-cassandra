@@ -222,6 +222,7 @@ public class MorphousTaskMessageSender {
 	}
 	
 	public enum MorphousTaskType {
+        COMPACT,
 		INSERT,
 		CATCH_UP,
 		ATOMIC_SWITCH;
@@ -286,6 +287,7 @@ public class MorphousTaskMessageSender {
 		public static final Map<MorphousTaskType, MorphousTaskHandler> taskHandlers;
 		static {
 			taskHandlers = new HashMap<MorphousTaskMessageSender.MorphousTaskType, MorphousTaskHandler>();
+            taskHandlers.put(MorphousTaskType.COMPACT, new CompactMorphousTaskHandler());
 			taskHandlers.put(MorphousTaskType.INSERT, new InsertMorphousTaskHandler());
 			taskHandlers.put(MorphousTaskType.ATOMIC_SWITCH, new AtomicSwitchMorphousTaskHandler());
 		}

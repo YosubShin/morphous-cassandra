@@ -13,6 +13,7 @@ import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.Column;
 import org.apache.cassandra.db.ColumnFamily;
 import org.apache.cassandra.db.ColumnFamilyStore;
@@ -52,25 +53,26 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 		ColumnFamilyStore tempCfs = keyspace.getColumnFamilyStore(Morphous.tempColumnFamilyName(task.columnFamily));
 		
 		try {
-			// TODO Block all local write requests
-			
+			// All write requests on this Column family is being blocked now
 			doBlockingFlushOnOriginalCFAndTempCF(originalCfs, tempCfs);
 			swapSSTablesBetweenCfs(originalCfs, tempCfs);
 			
 			originalCfs.reload();
 			tempCfs.reload();
-			
-			// Trigger more catch up on last minute changes
-			replayRecentSstablesAtTempColumnFamily(originalCfs, tempCfs, task.taskStartedAtInMicro);
 		} finally {
-			// TODO Unblock local writes
-		}		
-		
+            // Unblock local writes (does not affect other nodes in the cluster)
+            logger.info("Unlocking write lock for keyspace {}, column family {} since swapping of the table is over", task.keyspace, task.columnFamily);
+            QueryProcessor.processInternal(String.format("update system.morphous_status set swapping = False where keyspace_name = '%s' and columnfamily_name = '%s';", task.keyspace, task.columnFamily));
+        }
+        // Trigger catch up
+        replayRecentSstablesAtTempColumnFamily(originalCfs, tempCfs, task.taskStartedAtInMicro);
+
 		logger.debug("AtomcSwitchMorphousTask {} finished in {} ms, and generated response : {}", task, System.currentTimeMillis() - startAt, response);
 		return response;
 	}
 	
 	public void replayRecentSstablesAtTempColumnFamily(ColumnFamilyStore originalCfs, ColumnFamilyStore tempCfs, long replayAfterInMicro) {
+        logger.debug("Replaying recent updates in the SSTables since reconfiguration has started at {}us, in column family {}", replayAfterInMicro, originalCfs.name);
 		// Filter only SSTables that's newer than replayAfter value
 		List<SSTableReader> sstables = new ArrayList<SSTableReader>();
 		for (SSTableReader sstable : tempCfs.getSSTables()) {
@@ -88,9 +90,11 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 				DecoratedKey tempKey = onDiskAtomIterator.getKey();
 	        	ColumnFamily cf = TreeMapBackedSortedColumns.factory.create(originalCfs.metadata);
 	        	// Add partition key Column of Temp table into the newly created ColumnFamily
-	        	cf.addColumn(new Column(edu.uiuc.dprg.morphous.Util.getColumnNameByteBuffer(Morphous.getPartitionKeyNameByteBuffer(tempCfs)), ((ByteBuffer) tempKey.key.rewind()).asReadOnlyBuffer()));
+                // Set the timestamp to be the time when reconfiguration has started. (the timestamp has to be in millisecond in this case)
+	        	cf.addColumn(new Column(edu.uiuc.dprg.morphous.Util.getColumnNameByteBuffer(Morphous.getPartitionKeyNameByteBuffer(tempCfs)), ((ByteBuffer) tempKey.key.rewind()).asReadOnlyBuffer(), replayAfterInMicro / 1000));
 	        	
 	        	while (onDiskAtomIterator.hasNext()) {
+                    // This should be enough to preserve timestamp, because I'm not touching anything from original columns.
 	        		cf.addAtom(onDiskAtomIterator.next());
 	        	}
 	        	RowMutation rm = new RowMutation(edu.uiuc.dprg.morphous.Util.getKeyByteBufferForCf(cf), cf);

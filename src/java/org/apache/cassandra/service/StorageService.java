@@ -38,7 +38,6 @@ import javax.management.ObjectName;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Predicate;
 import com.google.common.collect.*;
-import com.google.common.util.concurrent.AtomicDouble;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.Uninterruptibles;
@@ -46,7 +45,6 @@ import com.google.common.util.concurrent.Uninterruptibles;
 import edu.uiuc.dprg.morphous.MorphousTaskMessageSender;
 import edu.uiuc.dprg.morphous.Morphous;
 
-import org.apache.cassandra.cql3.CQL3Type;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
@@ -3990,6 +3988,6 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         Morphous.MorphousConfiguration morphousConfiguration = Morphous.instance().parseMorphousConfiguration(morphousOptions);
         Morphous.instance().configuration = morphousConfiguration;
-        new Thread(Morphous.instance().createAsyncInsertMorphousTask(keyspace, columnFamilies[0], morphousConfiguration)).start();
+        new Thread(Morphous.instance().createAsyncMorphousTask(keyspace, columnFamilies[0], morphousConfiguration)).start();
     }
 }

@@ -38,10 +38,8 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 		response.taskUuid = task.taskUuid;
 		
 		ColumnFamilyStore originalCfs = Keyspace.open(task.keyspace).getColumnFamilyStore(task.columnFamily); 
-		// Disable compaction on original table, since we only want to catch up the SSTables modified after this moment. 
-		originalCfs.disableAutoCompaction();
-		// TODO Maybe a good idea to flush here?
-		
+
+        // Here, we are assuming that the cluster has gone through the major compaction
 		Collection<Range<Token>> ranges = StorageService.instance.getLocalRanges(task.keyspace);
 		try {
 			insertLocalRangesOnTemporaryCF(task.keyspace, task.columnFamily, Morphous.tempColumnFamilyName(task.columnFamily), task.newPartitionKey	, ranges);

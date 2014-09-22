@@ -46,13 +46,12 @@ public class Morphous {
 
 
     /**
-     * Caveat : When we change the partition key to something else, we also need to recreate index, since index is a table that stores map from the column being indexed to the old primary key
      * @param keyspace
      * @param columnFamily
      * @param config
      * @return
      */
-    public FutureTask<Object> createAsyncInsertMorphousTask(final String keyspace, final String columnFamily, final MorphousConfiguration config) {
+    public FutureTask<Object> createAsyncMorphousTask(final String keyspace, final String columnFamily, final MorphousConfiguration config) {
         logger.debug("Creating a morphous task with keyspace={}, columnFamily={}, configuration={}", keyspace, columnFamily, config);
         return new FutureTask<Object>(new WrappedRunnable() {
             @Override
@@ -60,20 +59,14 @@ public class Morphous {
                 String message = String.format("Starting morphous command for keyspace %s, column family %s, configuration %s", keyspace, columnFamily, config.toString());
                 logger.info(message);
                 try {
-                    Keyspace ks = Keyspace.open(keyspace);
-                    ColumnFamilyStore cfs = ks.getColumnFamilyStore(columnFamily);
-                    cfs.forceMajorCompaction();
-
-                	createTempColumnFamily(keyspace, columnFamily, config.columnName);
-                	
-                	MorphousTask morphousTask = new MorphousTask();
-                	morphousTask.taskType = MorphousTaskType.INSERT;
-                	morphousTask.keyspace = keyspace;
-                	morphousTask.columnFamily = columnFamily;
-                	morphousTask.newPartitionKey = config.columnName;
-                	morphousTask.callback = getInsertMorphousTaskCallback();
-                	morphousTask.taskStartedAtInMicro = System.currentTimeMillis() * 1000;
-                	MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(morphousTask);
+                    MorphousTask morphousTask = new MorphousTask();
+                    morphousTask.taskType = MorphousTaskType.COMPACT;
+                    morphousTask.keyspace = keyspace;
+                    morphousTask.columnFamily = columnFamily;
+                    morphousTask.newPartitionKey = config.columnName;
+                    morphousTask.callback = getCompactMorphousTaskCallback();
+                    morphousTask.taskStartedAtInMicro = System.currentTimeMillis() * 1000;
+                    MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(morphousTask);
                 } catch(Exception e) {
                     logger.error("Execption occurred {}", e);
                     throw new RuntimeException(e);
@@ -81,6 +74,35 @@ public class Morphous {
 
             }
         }, null);
+    }
+
+
+    public MorphousTaskCallback getCompactMorphousTaskCallback() {
+        return new MorphousTaskCallback() {
+            @Override
+            public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
+                String message = String.format("CompactMorphousTask is over. Start InsertMorphousTask for keyspace %s, column family %s", task.keyspace, task.columnFamily);
+                logger.info(message);
+                try {
+                    Keyspace ks = Keyspace.open(task.keyspace);
+                    ColumnFamilyStore cfs = ks.getColumnFamilyStore(task.columnFamily);
+
+                    createTempColumnFamily(task.keyspace, task.columnFamily, task.newPartitionKey);
+
+                    MorphousTask morphousTask = new MorphousTask();
+                    morphousTask.taskType = MorphousTaskType.INSERT;
+                    morphousTask.keyspace = task.keyspace;
+                    morphousTask.columnFamily = task.columnFamily;
+                    morphousTask.newPartitionKey = task.newPartitionKey;
+                    morphousTask.callback = getInsertMorphousTaskCallback();
+                    morphousTask.taskStartedAtInMicro = task.taskStartedAtInMicro;
+                    MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(morphousTask);
+                } catch(Exception e) {
+                    logger.error("Execption occurred {}", e);
+                    throw new RuntimeException(e);
+                }
+            }
+        };
     }
 
     public void setWriteLockOnColumnFamily(String ksName, String columnFamily, boolean locked) {
@@ -267,7 +289,6 @@ public class Morphous {
 	 * @param rm
 	 * @param n one-based number that represents what replication order it has
 	 */
-    @Deprecated
 	public static void sendRowMutationToNthReplicaNode(RowMutation rm, int n) {
 		InetAddress destinationNode = edu.uiuc.dprg.morphous.Util.getNthReplicaNodeForKey(rm.getKeyspaceName(), rm.key(), n);
 		MessageOut<RowMutation> message = rm.createMessage();
