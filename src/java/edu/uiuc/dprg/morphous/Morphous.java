@@ -44,6 +44,7 @@ public class Morphous {
         return instance;
     }
 
+    private long startTimestamp;
 
     /**
      * @param keyspace
@@ -52,13 +53,15 @@ public class Morphous {
      * @return
      */
     public FutureTask<Object> createAsyncMorphousTask(final String keyspace, final String columnFamily, final MorphousConfiguration config) {
+        startTimestamp = System.currentTimeMillis(); // Record start time
         logger.debug("Creating a morphous task with keyspace={}, columnFamily={}, configuration={}", keyspace, columnFamily, config);
         return new FutureTask<Object>(new WrappedRunnable() {
             @Override
             protected void runMayThrow() throws Exception {
-                String message = String.format("Starting morphous command for keyspace %s, column family %s, configuration %s", keyspace, columnFamily, config.toString());
-                logger.info(message);
+                logger.info("Starting morphous command for keyspace {}, column family {}, configuration {}", keyspace, columnFamily, config);
                 try {
+                    createTempColumnFamily(keyspace, columnFamily, config.columnName);
+
                     MorphousTask morphousTask = new MorphousTask();
                     morphousTask.taskType = MorphousTaskType.COMPACT;
                     morphousTask.keyspace = keyspace;
@@ -81,14 +84,10 @@ public class Morphous {
         return new MorphousTaskCallback() {
             @Override
             public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
-                String message = String.format("CompactMorphousTask is over. Start InsertMorphousTask for keyspace %s, column family %s", task.keyspace, task.columnFamily);
-                logger.info(message);
+                logger.info("CompactMorphousTask is over in {}ms (since reconfiguration was started)", System.currentTimeMillis() - startTimestamp);
+
+                logger.info("CompactMorphousTask is over. Start InsertMorphousTask for keyspace {}, column family {}", task.keyspace, task.columnFamily);
                 try {
-                    Keyspace ks = Keyspace.open(task.keyspace);
-                    ColumnFamilyStore cfs = ks.getColumnFamilyStore(task.columnFamily);
-
-                    createTempColumnFamily(task.keyspace, task.columnFamily, task.newPartitionKey);
-
                     MorphousTask morphousTask = new MorphousTask();
                     morphousTask.taskType = MorphousTaskType.INSERT;
                     morphousTask.keyspace = task.keyspace;
@@ -127,6 +126,8 @@ public class Morphous {
 			
 			@Override
 			public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
+                logger.info("InsertMorphousTask is over in {}ms (since reconfiguration was started)", System.currentTimeMillis() - startTimestamp);
+
 				logger.debug("The InsertMorphousTask {} is done! Now doing the next step", task);
 				
 				// Create AtomicSwitchMorphousTask
@@ -135,7 +136,7 @@ public class Morphous {
             	newMorphousTask.keyspace = task.keyspace;
             	newMorphousTask.columnFamily = task.columnFamily;
             	newMorphousTask.newPartitionKey = task.newPartitionKey;
-            	newMorphousTask.callback = getAtomicSwitchTaskCallback();
+            	newMorphousTask.callback = getAtomicSwitchMorphousTaskCallback();
             	newMorphousTask.taskStartedAtInMicro = task.taskStartedAtInMicro;
             	
             	Keyspace keyspace = Keyspace.open(task.keyspace);
@@ -151,15 +152,17 @@ public class Morphous {
 		};
     }
 
-    public MorphousTaskCallback getAtomicSwitchTaskCallback() {
+    public MorphousTaskCallback getAtomicSwitchMorphousTaskCallback() {
         return new MorphousTaskCallback() {
 
             @Override
             public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
-                logger.debug("The AtomicSwitchMorphousTask {} is done! Now doing the next step", task);
+                logger.debug("The AtomicSwitchMorphousTask {} is done!", task);
 
                 // Unlock write lock on this column family
                 setWriteLockOnColumnFamily(task.keyspace, task.columnFamily, false);
+
+                logger.info("AtomicSwitchMorphousTask is over in {}ms (since reconfiguration was started)", System.currentTimeMillis() - startTimestamp);
             }
         };
     }
@@ -167,7 +170,7 @@ public class Morphous {
     public void createTempColumnFamily(String ksName, String oldCfName, String newPartitionKey) {
     	logger.debug("Creating a temporary column family for changing Column Family {}'s partition key to {}", oldCfName, newPartitionKey);
     	CFMetaData oldCfm = Keyspace.open(ksName).getColumnFamilyStore(oldCfName).metadata;
-    	
+
     	String tempCfName = tempColumnFamilyName(oldCfName);
     	CFMetaData cfm = createNewCFMetaDataFromOldCFMetaDataWithNewCFNameAndNewPartitonKey(oldCfm, tempCfName, newPartitionKey);
     	createNewColumnFamilyWithCFMetaData(cfm);
