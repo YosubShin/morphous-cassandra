@@ -279,7 +279,13 @@ public class Util {
 
 	public static ByteBuffer getKeyByteBufferForCf(ColumnFamily cf) {
 		CFMetaData metadata = cf.metadata();
-		return cf.getColumn(getColumnNameByteBuffer(Morphous.getPartitionKeyNameByteBuffer(metadata))).value();
+        ByteBuffer pkNameByteBuffer = Morphous.getPartitionKeyNameByteBuffer(metadata);
+        ByteBuffer columnNameByteBuffer = getColumnNameByteBuffer(pkNameByteBuffer);
+        Column column = cf.getColumn(columnNameByteBuffer);
+        if (column == null) {
+            throw new PartialUpdateException("In ColumnFamily, there isn't column that corresponds to partition key, probably because of partial update. ColumnFamily=" + cf.toString());
+        }
+		return column.value();
 	}
 
 }

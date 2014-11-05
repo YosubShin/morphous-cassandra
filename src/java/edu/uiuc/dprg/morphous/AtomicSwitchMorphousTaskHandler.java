@@ -97,8 +97,15 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
                     // This should be enough to preserve timestamp, because I'm not touching anything from original columns.
 	        		cf.addAtom(onDiskAtomIterator.next());
 	        	}
-	        	RowMutation rm = new RowMutation(edu.uiuc.dprg.morphous.Util.getKeyByteBufferForCf(cf), cf);
-	        	
+
+	        	RowMutation rm;
+                try {
+                    rm = new RowMutation(edu.uiuc.dprg.morphous.Util.getKeyByteBufferForCf(cf), cf);
+                } catch (PartialUpdateException e) {
+                    logger.warn("Partial update is currently not supported", e);
+                    continue;
+                }
+
 	        	int destinationReplicaIndex =  edu.uiuc.dprg.morphous.Util.getReplicaIndexForKey(tempCfs.keyspace.getName(), tempKey.key);
 	        	Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
 			}
