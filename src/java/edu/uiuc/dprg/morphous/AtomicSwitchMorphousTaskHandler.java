@@ -2,28 +2,17 @@ package edu.uiuc.dprg.morphous;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.Map.Entry;
-import java.util.Set;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.cassandra.cql3.QueryProcessor;
-import org.apache.cassandra.db.Column;
-import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.DecoratedKey;
-import org.apache.cassandra.db.Directories;
-import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.db.RowMutation;
-import org.apache.cassandra.db.TreeMapBackedSortedColumns;
+import org.apache.cassandra.cql3.UntypedResultSet;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.compaction.OperationType;
+import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.io.sstable.Component;
 import org.apache.cassandra.io.sstable.Descriptor;
 import org.apache.cassandra.io.sstable.SSTable;
@@ -92,7 +81,6 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 	        	// Add partition key Column of Temp table into the newly created ColumnFamily
                 // Set the timestamp to be the time when reconfiguration has started. (the timestamp has to be in millisecond in this case)
 	        	cf.addColumn(new Column(edu.uiuc.dprg.morphous.Util.getColumnNameByteBuffer(Morphous.getPartitionKeyNameByteBuffer(tempCfs)), ((ByteBuffer) tempKey.key.rewind()).asReadOnlyBuffer(), replayAfterInMicro / 1000));
-	        	
 	        	while (onDiskAtomIterator.hasNext()) {
                     // This should be enough to preserve timestamp, because I'm not touching anything from original columns.
 	        		cf.addAtom(onDiskAtomIterator.next());
@@ -102,8 +90,27 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
                 try {
                     rm = new RowMutation(edu.uiuc.dprg.morphous.Util.getKeyByteBufferForCf(cf), cf);
                 } catch (PartialUpdateException e) {
-                    logger.warn("Partial update is currently not supported", e);
-                    continue;
+					logger.warn("Partial update is currently not supported", e);
+					continue;
+//					String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
+//					String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
+//
+//					String query = String.format("SELECT %s FROM %s WHERE %s = '%s';", originalCfPkName, tempCfs.name, tempCfPkName, Util.toStringByteBuffer((ByteBuffer) tempKey.key.rewind()));
+//					try {
+//						UntypedResultSet result = QueryProcessor.process(query, ConsistencyLevel.ONE);
+//						Iterator<UntypedResultSet.Row> iter = result.iterator();
+//						while (iter.hasNext()) {
+//							UntypedResultSet.Row row = iter.next();
+//							ByteBuffer key = row.getBytes(originalCfPkName);
+//							if (key != null) {
+//								rm = new RowMutation(key, cf);
+//							} else {
+//								logger.warn("No new Partition key column available in temp table either");
+//							}
+//						}
+//					} catch (RequestExecutionException e1) {
+//						throw new MorphousException("Failed to fall back for PartialUpdate", e1);
+//					}
                 }
 
 	        	int destinationReplicaIndex =  edu.uiuc.dprg.morphous.Util.getReplicaIndexForKey(tempCfs.keyspace.getName(), tempKey.key);
@@ -119,7 +126,7 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 				originalCfs.forceFlush(), 
 				tempCfs.forceFlush()
 				};
-		long timeout = 10000;
+		long timeout = 30000;
 		long startAt = System.currentTimeMillis();
 		outer_while_loop:
 		while (System.currentTimeMillis() - startAt < timeout) {

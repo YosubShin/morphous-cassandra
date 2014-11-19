@@ -27,7 +27,7 @@ public class MorphousTaskMessageSender {
 	private static final Logger logger = LoggerFactory.getLogger(MorphousTaskMessageSender.class);
 	private static MorphousTaskMessageSender instance = new MorphousTaskMessageSender();
 	
-	static long timeoutInMillis = 1000 * 60 * 5; 
+	static long timeoutInMillis = 1000 * 60 * 30;
 	HashMap<String, Map<InetAddress, MorphousTaskResponse>> messageResponseMap = new HashMap<>();
 	HashMap<String, MorphousTask> morphousTaskMap = new HashMap<>();
 		

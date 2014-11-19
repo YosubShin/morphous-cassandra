@@ -28,6 +28,7 @@ import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskResponseStat
 
 public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 	private static final Logger logger = LoggerFactory.getLogger(InsertMorphousTaskHandler.class);
+	private static final long throttleMillis = 50;
 
 	@SuppressWarnings("rawtypes")
 	@Override
@@ -95,6 +96,13 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 				int destinationReplicaIndex =  edu.uiuc.dprg.morphous.Util.getReplicaIndexForKey(ksName, row.key.key);
 				Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
                 count++;
+				try {
+					if (throttleMillis > 0) {
+						Thread.sleep(throttleMillis);
+					}
+				} catch (InterruptedException e) {
+					throw new MorphousException("Exception while sleeping for throttling", e);
+				}
 			}
 		}
 		logger.info("Inserted {} rows into Keyspace {}, ColumnFamily {}", count, ksName, tempCfName);
