@@ -28,7 +28,7 @@ import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskResponseStat
 
 public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 	private static final Logger logger = LoggerFactory.getLogger(InsertMorphousTaskHandler.class);
-	private static final long throttleMillis = 50;
+	private static final long throttleMillis = 0;
 
 	@SuppressWarnings("rawtypes")
 	@Override
