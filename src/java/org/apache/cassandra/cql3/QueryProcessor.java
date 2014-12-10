@@ -24,7 +24,9 @@ import com.google.common.primitives.Ints;
 
 import com.googlecode.concurrentlinkedhashmap.ConcurrentLinkedHashMap;
 import com.googlecode.concurrentlinkedhashmap.EntryWeigher;
+import edu.uiuc.dprg.morphous.MorphousException;
 import org.antlr.runtime.*;
+import org.apache.cassandra.transport.Message;
 import org.github.jamm.MemoryMeter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -162,7 +164,7 @@ public class QueryProcessor implements QueryHandler
             UntypedResultSet result = processInternal(String.format("select swapping from system.morphous_status where keyspace_name = '%s' and columnfamily_name = '%s';", keyspace, columnFamily));
             if (!result.isEmpty() && result.one().getBoolean("swapping")) {
                 logger.debug("Drop an UpdateStatement {} on Keyspace {}, ColumnFamily {} because swapping is on", statement, keyspace, columnFamily);
-                return new ResultMessage.Void();
+                throw new MorphousException("Unable to insert due to lock");
             }
         }
 

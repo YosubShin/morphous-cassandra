@@ -157,12 +157,36 @@ public class Morphous {
 
             @Override
             public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
-                logger.debug("The AtomicSwitchMorphousTask {} is done!", task);
-
                 // Unlock write lock on this column family
                 setWriteLockOnColumnFamily(task.keyspace, task.columnFamily, false);
 
                 logger.info("AtomicSwitchMorphousTask is over in {}ms (since reconfiguration was started)", System.currentTimeMillis() - startTimestamp);
+
+                logger.debug("The AtomicSwitchMorphousTask {} is done! Now doing the next step", task);
+                // Create CatchupMorphousTask
+                MorphousTask newMorphousTask = new MorphousTask();
+                newMorphousTask.taskType = MorphousTaskType.CATCH_UP;
+                newMorphousTask.keyspace = task.keyspace;
+                newMorphousTask.columnFamily = task.columnFamily;
+                newMorphousTask.newPartitionKey = task.newPartitionKey;
+                newMorphousTask.callback = getCatchupMorphousTaskCallback();
+                newMorphousTask.taskStartedAtInMicro = task.taskStartedAtInMicro;
+
+                MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(newMorphousTask);
+            }
+        };
+    }
+
+    public MorphousTaskCallback getCatchupMorphousTaskCallback() {
+        return new MorphousTaskCallback() {
+
+            @Override
+            public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
+                logger.debug("The CatchupMorphousTask {} is done.", task);
+                for (Map.Entry<InetAddress, MorphousTaskResponse> entry : responses.entrySet()) {
+                    logger.debug("From: {}, Response : {}", entry.getKey(), entry.getValue());
+                }
+                logger.info("CatchupMorphousTask is over in {}ms (since reconfiguration was started)", System.currentTimeMillis() - startTimestamp);
             }
         };
     }

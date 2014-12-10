@@ -290,6 +290,7 @@ public class MorphousTaskMessageSender {
             taskHandlers.put(MorphousTaskType.COMPACT, new CompactMorphousTaskHandler());
 			taskHandlers.put(MorphousTaskType.INSERT, new InsertMorphousTaskHandler());
 			taskHandlers.put(MorphousTaskType.ATOMIC_SWITCH, new AtomicSwitchMorphousTaskHandler());
+			taskHandlers.put(MorphousTaskType.CATCH_UP, new CatchupMorphousTaskHandler());
 		}
 
 		@Override
