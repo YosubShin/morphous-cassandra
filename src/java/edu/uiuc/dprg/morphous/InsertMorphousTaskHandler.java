@@ -6,13 +6,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import com.google.common.collect.Iterables;
-import org.apache.cassandra.db.ColumnFamily;
-import org.apache.cassandra.db.ColumnFamilyStore;
-import org.apache.cassandra.db.DataRange;
-import org.apache.cassandra.db.Keyspace;
-import org.apache.cassandra.db.Row;
-import org.apache.cassandra.db.RowMutation;
-import org.apache.cassandra.db.TreeMapBackedSortedColumns;
+import org.apache.cassandra.db.*;
 import org.apache.cassandra.dht.LongToken;
 import org.apache.cassandra.dht.Range;
 import org.apache.cassandra.dht.Token;
@@ -88,8 +82,13 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 				
 				// Add column for original partition key because it's not present in old ColumnFamily
 				tempData.addColumn(oldPartitionKeyName.asReadOnlyBuffer(), row.key.key, data.maxTimestamp());
-				
-				ByteBuffer newKey = tempData.getColumn(Util.getColumnNameByteBuffer(newPartitionKey)).value();
+
+				Column newPartitionKeyColumn = tempData.getColumn(Util.getColumnNameByteBuffer(newPartitionKey));
+				if (newPartitionKeyColumn == null) {
+					logger.warn("No new partition key column value exists for row {}", row);
+					continue;
+				}
+				ByteBuffer newKey = newPartitionKeyColumn.value();
 				
 				RowMutation rm = new RowMutation(newKey, tempData);
 				

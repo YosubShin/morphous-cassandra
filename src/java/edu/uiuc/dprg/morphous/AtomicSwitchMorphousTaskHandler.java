@@ -115,14 +115,18 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 					((AtomicInteger) edu.uiuc.dprg.morphous.Util.getPrivateFieldWithReflection(destCfs, "fileIndexGenerator")).incrementAndGet(), 
 					false);
 			for (Component component : entry.getValue()) {
-				logger.debug("Moving SSTable File {} from {} to {}", srcDescriptor.filenameFor(component), srcDescriptor.directory, destDescriptor.directory);
-				FileUtils.renameWithConfirm(srcDescriptor.filenameFor(component), destDescriptor.filenameFor(component));
+				logger.debug("Moving SSTable File {} to {}", srcDescriptor.filenameFor(component), destDescriptor.filenameFor(component));
+
+//				FileUtils.renameWithOutConfirm(srcDescriptor.filenameFor(component), destDescriptor.filenameFor(component));
+                FileUtils.renameWithConfirm(srcDescriptor.filenameFor(component), destDescriptor.filenameFor(component));
 			}
 			
 			try {
 				destNewSSTables.add(SSTableReader.open(destDescriptor));
-			} catch (IOException e) {
-				throw new MorphousException("Error while creating a new SSTableReader", e);
+			} catch (IOException e)
+			{
+				SSTableReader.logOpenException(entry.getKey(), e);
+				continue;
 			}
 		}
 		return destNewSSTables;

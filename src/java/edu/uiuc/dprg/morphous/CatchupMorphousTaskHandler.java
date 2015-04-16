@@ -7,12 +7,17 @@ import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.compaction.OperationType;
+import org.apache.cassandra.dht.Token;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.util.FileUtils;
+import org.apache.cassandra.locator.AbstractReplicationStrategy;
+import org.apache.cassandra.locator.TokenMetadata;
+import org.apache.cassandra.service.StorageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.Map.Entry;
@@ -56,6 +61,9 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 		// Sort SSTableReaders by chronological order
 		Collections.sort(sstables, SSTable.maxTimestampComparator);
 
+		int partialUpdateFailureCount = 0;
+		int destinationReplicaIndexFindFailureCount = 0;
+
 		for (SSTableReader sstable : sstables) {
 			SSTableScanner scanner = sstable.getScanner();
 			while (scanner.hasNext()) {
@@ -76,6 +84,7 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 					rowCount++;
 				} catch (PartialUpdateException e) {
 					logger.warn("Partial update is currently not supported", e);
+					partialUpdateFailureCount++;
 					continue;
 //					String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
 //					String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
@@ -98,11 +107,20 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 //					}
 				}
 
-				int destinationReplicaIndex = Util.getReplicaIndexForKey(tempCfs.keyspace.getName(), tempKey.key);
+				int destinationReplicaIndex;
+				try {
+					destinationReplicaIndex = Util.getReplicaIndexForKey(tempCfs.keyspace.getName(), tempKey.key);
+				} catch (MorphousException e) {
+					logger.error("error in getReplicasIndexForKey: cf={}, key={}");
+					destinationReplicaIndexFindFailureCount++;
+					continue;
+				}
+
 				Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
 			}
 		}
 		logger.info("Replayed for # of sstables={}, # of rows={}", sstableCount, rowCount);
-		response.message = "Replayed for # of sstables=" + sstableCount + ", # of rows=" + rowCount;
+		response.message = String.format("Replayed for # of sstables=%d, # of rows=%d, # of failed partial updates=%d, # of failed destinationReplicas lookup=%d",
+				sstableCount, rowCount, partialUpdateFailureCount, destinationReplicaIndexFindFailureCount);
 	}
 }

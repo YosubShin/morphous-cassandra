@@ -156,7 +156,7 @@ public class Util {
 	
     @SuppressWarnings("rawtypes")
 	public static InetAddress getNthReplicaNodeForKey(String ksName, ByteBuffer value, int n) {
-    	logger.debug("Looking for new destination value for value : {}", edu.uiuc.dprg.morphous.Util.toStringByteBuffer(value));
+    	logger.trace("Looking for new destination value for value : {}", edu.uiuc.dprg.morphous.Util.toStringByteBuffer(value));
         // Mimics SimpleStrategy's implementation
         Token token = StorageService.getPartitioner().getToken(value);
         TokenMetadata metadata = StorageService.instance.getTokenMetadata();
@@ -182,7 +182,7 @@ public class Util {
         		return i;
         	}
         }
-    	throw new MorphousException("No proper index for this key");
+    	throw new MorphousException("No proper index for this token=" + token + ", ByteBuffer=" + value + ", endpoints=" + endpoints);
     }
 
 	public static Cassandra.Client getClient() throws TTransportException
