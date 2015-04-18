@@ -54,7 +54,7 @@ public class Morphous {
      */
     public FutureTask<Object> createAsyncMorphousTask(final String keyspace, final String columnFamily, final MorphousConfiguration config) {
         startTimestamp = System.currentTimeMillis(); // Record start time
-        logger.info("MorphusTimestamp: MorphusStartAt %d", startTimestamp);
+        logger.info("MorphusTimestamp: MorphusStartAt {}", startTimestamp);
         logger.debug("Creating a morphous task with keyspace={}, columnFamily={}, configuration={}", keyspace, columnFamily, config);
         return new FutureTask<Object>(new WrappedRunnable() {
             @Override
@@ -85,7 +85,7 @@ public class Morphous {
         return new MorphousTaskCallback() {
             @Override
             public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
-                logger.info("MorphusTimestamp: CompactMorphusTask %d", System.currentTimeMillis());
+                logger.info("MorphusTimestamp: CompactMorphusTask {}", System.currentTimeMillis());
                 logger.info("CompactMorphousTask is over in {}ms (since reconfiguration was started)", System.currentTimeMillis() - startTimestamp);
 
                 logger.info("CompactMorphousTask is over. Start InsertMorphousTask for keyspace {}, column family {}", task.keyspace, task.columnFamily);
@@ -128,7 +128,7 @@ public class Morphous {
 			
 			@Override
 			public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
-                logger.info("MorphusTimestamp: InsertMorphusTask %d", System.currentTimeMillis());
+                logger.info("MorphusTimestamp: InsertMorphusTask {}", System.currentTimeMillis());
                 logger.info("InsertMorphousTask is over in {}ms (since reconfiguration was started)", System.currentTimeMillis() - startTimestamp);
 
 				logger.debug("The InsertMorphousTask {} is done! Now doing the next step", task);
@@ -162,7 +162,7 @@ public class Morphous {
             public void callback(MorphousTask task, Map<InetAddress, MorphousTaskResponse> responses) {
                 // Unlock write lock on this column family
                 setWriteLockOnColumnFamily(task.keyspace, task.columnFamily, false);
-                logger.info("MorphusTimestamp: AtomicSwitchMorphusTask %d", System.currentTimeMillis());
+                logger.info("MorphusTimestamp: AtomicSwitchMorphusTask {}", System.currentTimeMillis());
                 logger.info("AtomicSwitchMorphousTask is over in {}ms (since reconfiguration was started)", System.currentTimeMillis() - startTimestamp);
 
                 logger.debug("The AtomicSwitchMorphousTask {} is done! Now doing the next step", task);
@@ -189,7 +189,7 @@ public class Morphous {
                 for (Map.Entry<InetAddress, MorphousTaskResponse> entry : responses.entrySet()) {
                     logger.debug("From: {}, Response : {}", entry.getKey(), entry.getValue());
                 }
-                logger.info("MorphusTimestamp: CatchupMorphusTask %d", System.currentTimeMillis());
+                logger.info("MorphusTimestamp: CatchupMorphusTask {}", System.currentTimeMillis());
                 logger.info("CatchupMorphousTask is over in {}ms (since reconfiguration was started)", System.currentTimeMillis() - startTimestamp);
             }
         };
