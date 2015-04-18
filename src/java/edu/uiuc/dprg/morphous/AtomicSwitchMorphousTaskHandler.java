@@ -7,10 +7,12 @@ import java.util.Map.Entry;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.collect.Iterables;
 import org.apache.cassandra.cql3.QueryProcessor;
 import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
+import org.apache.cassandra.db.compaction.CompactionManager;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.io.sstable.Component;
@@ -43,11 +45,21 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 
 		try {
 			// All write requests on this Column family is being blocked now
+            CompactionManager compactionManager = CompactionManager.instance;
+
+            originalCfs.disableAutoCompaction();
+            tempCfs.disableAutoCompaction();
+            // Stop compactions that are being executed
+            compactionManager.interruptCompactionFor(Arrays.asList(originalCfs.metadata, tempCfs.metadata), true);
+
 			doBlockingFlushOnOriginalCFAndTempCF(originalCfs, tempCfs);
 			swapSSTablesBetweenCfs(originalCfs, tempCfs);
 
 			originalCfs.reload();
 			tempCfs.reload();
+
+            originalCfs.enableAutoCompaction();
+            tempCfs.enableAutoCompaction();
 		} finally {
 			// Unblock local writes (does not affect other nodes in the cluster)
 			logger.info("Unlocking write lock for keyspace {}, column family {} since swapping of the table is over", task.keyspace, task.columnFamily);
