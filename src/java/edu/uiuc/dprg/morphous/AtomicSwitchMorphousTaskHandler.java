@@ -135,8 +135,8 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 //				FileUtils.renameWithOutConfirm(srcDescriptor.filenameFor(component), destDescriptor.filenameFor(component));
                 try {
                     FileUtils.renameWithConfirm(srcDescriptor.filenameFor(component), destDescriptor.filenameFor(component));
-                } catch (RuntimeException e) {
-                    logger.error("Exception {}", e);
+                } catch (AssertionError e) {
+                    logger.error("AssertionError {}", e);
                     logger.error("From directory: {}", srcDescriptor.directory.list());
                     logger.error("To directory: {}", destDescriptor.directory.list());
                 }
