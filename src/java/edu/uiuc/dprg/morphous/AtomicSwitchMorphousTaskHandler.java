@@ -100,6 +100,23 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 		Map<Descriptor, Set<Component>> leftSstableList = leftDirs.sstableLister().list();
 		Map<Descriptor, Set<Component>> rightSstableList = rightDirs.sstableLister().list();
 
+        List<String> componentList = new ArrayList<>();
+        for (Set<Component> components : leftSstableList.values()) {
+            for (Component component: components) {
+                componentList.add(component.name());
+            }
+        }
+        logger.debug("Components for left dir: {}", Arrays.toString(componentList.toArray()));
+
+        componentList = new ArrayList<>();
+        for (Set<Component> components : rightSstableList.values()) {
+            for (Component component: components) {
+                componentList.add(component.name());
+            }
+        }
+        logger.debug("Components for right dir: {}", Arrays.toString(componentList.toArray()));
+
+
         logger.debug("LeftDir:{}", Arrays.toString(leftSstableList.keySet().iterator().next().directory.list()));
         logger.debug("RightDir:{}", Arrays.toString(rightSstableList.keySet().iterator().next().directory.list()));
 
