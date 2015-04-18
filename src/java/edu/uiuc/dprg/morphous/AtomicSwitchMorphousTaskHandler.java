@@ -99,7 +99,10 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 		
 		Map<Descriptor, Set<Component>> leftSstableList = leftDirs.sstableLister().list();
 		Map<Descriptor, Set<Component>> rightSstableList = rightDirs.sstableLister().list();
-		
+
+        logger.debug("LeftDir:{}", Arrays.toString(leftSstableList.keySet().iterator().next().directory.list()));
+        logger.debug("RightDir:{}", Arrays.toString(rightSstableList.keySet().iterator().next().directory.list()));
+
 		Collection<SSTableReader> movedSstablesFromLeftToRight = movePhysicalSSTableFiles(leftSstableList, right);
 		Collection<SSTableReader> movedSstablesFromRightToLeft = movePhysicalSSTableFiles(rightSstableList, left);
 		
@@ -130,7 +133,13 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 				logger.debug("Moving SSTable File {} to {}", srcDescriptor.filenameFor(component), destDescriptor.filenameFor(component));
 
 //				FileUtils.renameWithOutConfirm(srcDescriptor.filenameFor(component), destDescriptor.filenameFor(component));
-                FileUtils.renameWithConfirm(srcDescriptor.filenameFor(component), destDescriptor.filenameFor(component));
+                try {
+                    FileUtils.renameWithConfirm(srcDescriptor.filenameFor(component), destDescriptor.filenameFor(component));
+                } catch (RuntimeException e) {
+                    logger.error("Exception {}", e);
+                    logger.error("From directory: {}", srcDescriptor.directory.list());
+                    logger.error("To directory: {}", destDescriptor.directory.list());
+                }
 			}
 			
 			try {
