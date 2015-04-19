@@ -161,11 +161,13 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 			
 			try {
 				destNewSSTables.add(SSTableReader.open(destDescriptor));
-			} catch (IOException e)
-			{
+			} catch (IOException e) {
 				SSTableReader.logOpenException(entry.getKey(), e);
-				continue;
-			}
+			} catch (Exception e) {
+                logger.error("Exception", e);
+            } catch (AssertionError e) {
+                logger.error("AssertionError", e);
+            }
 		}
 		return destNewSSTables;
 	}
