@@ -64,11 +64,16 @@ public class Morphous {
                     createTempColumnFamily(keyspace, columnFamily, config.columnName);
 
                     MorphousTask morphousTask = new MorphousTask();
-                    morphousTask.taskType = MorphousTaskType.COMPACT;
+                    if (config.shouldCompact) {
+                        morphousTask.taskType = MorphousTaskType.COMPACT;
+                        morphousTask.callback = getCompactMorphousTaskCallback();
+                    } else {
+                        morphousTask.taskType = MorphousTaskType.INSERT;
+                        morphousTask.callback = getInsertMorphousTaskCallback();
+                    }
                     morphousTask.keyspace = keyspace;
                     morphousTask.columnFamily = columnFamily;
                     morphousTask.newPartitionKey = config.columnName;
-                    morphousTask.callback = getCompactMorphousTaskCallback();
                     morphousTask.taskStartedAtInMicro = System.currentTimeMillis() * 1000;
                     MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(morphousTask);
                 } catch(Exception e) {
@@ -235,8 +240,10 @@ public class Morphous {
         try {
             JSONObject json = (JSONObject) new JSONParser().parse(configString);
             String columnName = (String) json.get("column");
+            boolean shouldCompact = Boolean.parseBoolean((String) json.get("compact"));
 
             config.columnName = columnName;
+            config.shouldCompact = shouldCompact;
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -329,11 +336,13 @@ public class Morphous {
 
 	public static class MorphousConfiguration {
         public String columnName;
+        public boolean shouldCompact;
 
         @Override
         public String toString() {
             return "MorphousConfiguration{" +
                     "columnName='" + columnName + '\'' +
+                    ", shouldCompact=" + shouldCompact +
                     '}';
         }
     }
