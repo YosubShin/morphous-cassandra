@@ -67,6 +67,10 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 		int partialUpdateFailureCount = 0;
 		int destinationReplicaIndexFindFailureCount = 0;
 
+        String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
+        String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
+        String keyspaceName = originalCfs.keyspace.getName();
+
 		for (SSTableReader sstable : sstables) {
 			SSTableScanner scanner = sstable.getScanner();
 			while (scanner.hasNext()) {
@@ -89,10 +93,8 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 //					logger.warn("Partial update is currently not supported", e);
 					partialUpdateFailureCount++;
 //					continue;
-					String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
-					String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
 
-					String query = String.format("SELECT %s FROM %s WHERE %s = '%s';", originalCfPkName, tempCfs.name, tempCfPkName, Util.toStringByteBuffer((ByteBuffer) tempKey.key.rewind()));
+					String query = String.format("SELECT %s FROM %s.%s WHERE %s = '%s';", originalCfPkName, keyspaceName, tempCfs.name, tempCfPkName, Util.toStringByteBuffer((ByteBuffer) tempKey.key.rewind()));
 					try {
 						UntypedResultSet result = QueryProcessor.process(query, ConsistencyLevel.ONE);
 						Iterator<UntypedResultSet.Row> iter = result.iterator();
