@@ -4,10 +4,12 @@ import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTask;
 import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskResponse;
 import edu.uiuc.dprg.morphous.MorphousTaskMessageSender.MorphousTaskResponseStatus;
 import org.apache.cassandra.cql3.QueryProcessor;
+import org.apache.cassandra.cql3.UntypedResultSet;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.db.columniterator.OnDiskAtomIterator;
 import org.apache.cassandra.db.compaction.OperationType;
 import org.apache.cassandra.dht.Token;
+import org.apache.cassandra.exceptions.RequestExecutionException;
 import org.apache.cassandra.io.sstable.*;
 import org.apache.cassandra.io.util.FileUtils;
 import org.apache.cassandra.locator.AbstractReplicationStrategy;
@@ -49,7 +51,6 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 	public void replayRecentSstablesAtTempColumnFamily(ColumnFamilyStore originalCfs, ColumnFamilyStore tempCfs, long replayAfterInMicro, MorphousTaskResponse response) {
 		logger.debug("Replaying recent updates in the SSTables since reconfiguration has started at {}us, in column family {}", replayAfterInMicro, originalCfs.name);
 		int sstableCount = 0;
-		int rowCount = 0;
 		// Filter only SSTables that's newer than replayAfter value
 		List<SSTableReader> sstables = new ArrayList<SSTableReader>();
 		for (SSTableReader sstable : tempCfs.getSSTables()) {
@@ -61,6 +62,8 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 		// Sort SSTableReaders by chronological order
 		Collections.sort(sstables, SSTable.maxTimestampComparator);
 
+        int totalRowCount = 0;
+		int successfulRowCount = 0;
 		int partialUpdateFailureCount = 0;
 		int destinationReplicaIndexFindFailureCount = 0;
 
@@ -78,33 +81,37 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 					cf.addAtom(onDiskAtomIterator.next());
 				}
 
-				RowMutation rm;
+				RowMutation rm = null;
 				try {
+                    totalRowCount++;
 					rm = new RowMutation(Util.getKeyByteBufferForCf(cf), cf);
-					rowCount++;
 				} catch (PartialUpdateException e) {
-					logger.warn("Partial update is currently not supported", e);
+//					logger.warn("Partial update is currently not supported", e);
 					partialUpdateFailureCount++;
-					continue;
-//					String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
-//					String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
-//
-//					String query = String.format("SELECT %s FROM %s WHERE %s = '%s';", originalCfPkName, tempCfs.name, tempCfPkName, Util.toStringByteBuffer((ByteBuffer) tempKey.key.rewind()));
-//					try {
-//						UntypedResultSet result = QueryProcessor.process(query, ConsistencyLevel.ONE);
-//						Iterator<UntypedResultSet.Row> iter = result.iterator();
-//						while (iter.hasNext()) {
-//							UntypedResultSet.Row row = iter.next();
-//							ByteBuffer key = row.getBytes(originalCfPkName);
-//							if (key != null) {
-//								rm = new RowMutation(key, cf);
-//							} else {
-//								logger.warn("No new Partition key column available in temp table either");
-//							}
-//						}
-//					} catch (RequestExecutionException e1) {
+//					continue;
+					String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
+					String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
+
+					String query = String.format("SELECT %s FROM %s WHERE %s = '%s';", originalCfPkName, tempCfs.name, tempCfPkName, Util.toStringByteBuffer((ByteBuffer) tempKey.key.rewind()));
+					try {
+						UntypedResultSet result = QueryProcessor.process(query, ConsistencyLevel.ONE);
+						Iterator<UntypedResultSet.Row> iter = result.iterator();
+						while (iter.hasNext()) {
+							UntypedResultSet.Row row = iter.next();
+							ByteBuffer key = row.getBytes(originalCfPkName);
+							if (key != null) {
+								rm = new RowMutation(key, cf);
+							} else {
+								logger.warn("No new Partition key column available in temp table either");
+                                throw new MorphousException("No new Partition key column available in temp table either");
+							}
+						}
+					} catch (RequestExecutionException | MorphousException e1) {
 //						throw new MorphousException("Failed to fall back for PartialUpdate", e1);
-//					}
+                        logger.warn("Failed to fall back for PartialUpdate", e1);
+                        partialUpdateFailureCount++;
+                        continue;
+					}
 				}
 
 				int destinationReplicaIndex;
@@ -116,11 +123,14 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 					continue;
 				}
 
-				Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
+                if (rm != null) {
+				    Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
+                    successfulRowCount++;
+                }
 			}
 		}
-		logger.info("Replayed for # of sstables={}, # of rows={}", sstableCount, rowCount);
-		response.message = String.format("Replayed for # of sstables=%d, # of rows=%d, # of failed partial updates=%d, # of failed destinationReplicas lookup=%d",
-				sstableCount, rowCount, partialUpdateFailureCount, destinationReplicaIndexFindFailureCount);
+		logger.info("Replayed for # of sstables={}, # of rows={}", sstableCount, successfulRowCount);
+		response.message = String.format("Replayed for # of sstables=%d. Out of total # of rows=%d, successfully updated # of rows=%d, # of failed partial updates=%d, # of failed destinationReplicas lookup=%d",
+				sstableCount, totalRowCount, successfulRowCount, partialUpdateFailureCount, destinationReplicaIndexFindFailureCount);
 	}
 }
