@@ -95,7 +95,7 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 //					continue;
 
                     String query = String.format("SELECT %s FROM %s.%s WHERE %s = '%s';", originalCfPkName, keyspaceName, tempCfs.name, tempCfPkName, Util.toStringByteBuffer((ByteBuffer) tempKey.key.rewind()));
-                    log.debug("Catchup select tempCFS partition key = {}", query);
+                    logger.debug("Catchup select tempCFS partition key = {}", query);
 					try {
 						UntypedResultSet result = QueryProcessor.process(query, ConsistencyLevel.ONE);
 						Iterator<UntypedResultSet.Row> iter = result.iterator();
