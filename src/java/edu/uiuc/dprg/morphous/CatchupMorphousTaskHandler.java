@@ -108,15 +108,12 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
                                 throw new MorphousException("No new Partition key column available in temp table either");
 							}
 						}
-					} catch (RequestExecutionException | MorphousException e1) {
+					} catch (RequestExecutionException | RuntimeException e1) {
 //						throw new MorphousException("Failed to fall back for PartialUpdate", e1);
                         logger.warn("Failed to fall back for PartialUpdate for query {} with exception {}", query, e1);
                         partialUpdateFailureCount++;
                         continue;
-					} catch (RuntimeException e1) {
-                        logger.error("Unexpected Exception occurred for query {}, {}", query, e1);
-                        throw e1;
-                    }
+					}
 				}
 
 				int destinationReplicaIndex;
