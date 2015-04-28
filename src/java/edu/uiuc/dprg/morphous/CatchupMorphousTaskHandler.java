@@ -67,13 +67,15 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 		int partialUpdateFailureCount = 0;
 		int destinationReplicaIndexFindFailureCount = 0;
 
-        String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
-        String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
-        String keyspaceName = originalCfs.keyspace.getName();
+        boolean reloaded = false;
 
 		for (SSTableReader sstable : sstables) {
 			SSTableScanner scanner = sstable.getScanner();
 			while (scanner.hasNext()) {
+                String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
+                String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
+                String keyspaceName = originalCfs.keyspace.getName();
+
 				OnDiskAtomIterator onDiskAtomIterator = scanner.next();
 				DecoratedKey tempKey = onDiskAtomIterator.getKey();
 				ColumnFamily cf = TreeMapBackedSortedColumns.factory.create(originalCfs.metadata);
@@ -113,6 +115,12 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 //						throw new MorphousException("Failed to fall back for PartialUpdate", e1);
                         logger.warn("Failed to fall back for PartialUpdate for query {} with exception {}", query, e1);
                         partialUpdateFailureCount++;
+
+                        if (!reloaded) {
+                            originalCfs.reload();
+                            tempCfs.reload();
+                            reloaded = true;
+                        }
                         continue;
 					}
 				}
