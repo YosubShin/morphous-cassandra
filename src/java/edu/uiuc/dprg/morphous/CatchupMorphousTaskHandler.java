@@ -37,7 +37,14 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 		response.status = MorphousTaskResponseStatus.SUCCESSFUL;
 		response.taskUuid = task.taskUuid;
 
-		Keyspace keyspace = Keyspace.open(task.keyspace);
+        try {
+            // Sleep to give enough time for new schema to propagate before actually doing the catch up.
+            Thread.sleep(5000);
+        } catch (InterruptedException e) {
+            logger.warn("InterruptedException {}", e);
+        }
+
+        Keyspace keyspace = Keyspace.open(task.keyspace);
 		ColumnFamilyStore originalCfs = keyspace.getColumnFamilyStore(task.columnFamily);
 		ColumnFamilyStore tempCfs = keyspace.getColumnFamilyStore(Morphous.tempColumnFamilyName(task.columnFamily));
 
