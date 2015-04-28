@@ -69,7 +69,7 @@ public class Morphous {
                         morphousTask.callback = getCompactMorphousTaskCallback();
                     } else {
                         // Wait until the create table command propagates
-                        Thread.sleep(5000);
+                        Thread.sleep(8000);
 
                         morphousTask.taskType = MorphousTaskType.INSERT;
                         morphousTask.callback = getInsertMorphousTaskCallback();
