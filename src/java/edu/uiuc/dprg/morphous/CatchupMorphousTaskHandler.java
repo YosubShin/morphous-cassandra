@@ -79,71 +79,78 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 		for (SSTableReader sstable : sstables) {
 			SSTableScanner scanner = sstable.getScanner();
 			while (scanner.hasNext()) {
-                String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
-                String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
-                String keyspaceName = originalCfs.keyspace.getName();
+                try {
+                    String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
+                    String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
+                    String keyspaceName = originalCfs.keyspace.getName();
 
-				OnDiskAtomIterator onDiskAtomIterator = scanner.next();
-				DecoratedKey tempKey = onDiskAtomIterator.getKey();
-				ColumnFamily cf = TreeMapBackedSortedColumns.factory.create(originalCfs.metadata);
-				// Add partition key Column of Temp table into the newly created ColumnFamily
-				// Set the timestamp to be the time when reconfiguration has started. (the timestamp has to be in millisecond in this case)
-				cf.addColumn(new Column(Util.getColumnNameByteBuffer(Morphous.getPartitionKeyNameByteBuffer(tempCfs)), ((ByteBuffer) tempKey.key.rewind()).asReadOnlyBuffer(), replayAfterInMicro / 1000));
-				while (onDiskAtomIterator.hasNext()) {
-					// This should be enough to preserve timestamp, because I'm not touching anything from original columns.
-					cf.addAtom(onDiskAtomIterator.next());
-				}
+                    OnDiskAtomIterator onDiskAtomIterator = scanner.next();
+                    DecoratedKey tempKey = onDiskAtomIterator.getKey();
+                    ColumnFamily cf = TreeMapBackedSortedColumns.factory.create(originalCfs.metadata);
+                    // Add partition key Column of Temp table into the newly created ColumnFamily
+                    // Set the timestamp to be the time when reconfiguration has started. (the timestamp has to be in millisecond in this case)
+                    cf.addColumn(new Column(Util.getColumnNameByteBuffer(Morphous.getPartitionKeyNameByteBuffer(tempCfs)), ((ByteBuffer) tempKey.key.rewind()).asReadOnlyBuffer(), replayAfterInMicro / 1000));
+                    while (onDiskAtomIterator.hasNext()) {
+                        // This should be enough to preserve timestamp, because I'm not touching anything from original columns.
+                        cf.addAtom(onDiskAtomIterator.next());
+                    }
 
-				RowMutation rm = null;
-				try {
-                    totalRowCount++;
-					rm = new RowMutation(Util.getKeyByteBufferForCf(cf), cf);
-				} catch (PartialUpdateException e) {
-//					logger.warn("Partial update is currently not supported", e);
-					partialUpdateFailureCount++;
-//					continue;
-
-                    String query = String.format("SELECT %s FROM %s.%s WHERE %s = '%s';", originalCfPkName, keyspaceName, tempCfs.name, tempCfPkName, Util.toStringByteBuffer((ByteBuffer) tempKey.key.rewind()));
-                    logger.debug("Catchup select tempCFS partition key = {}", query);
-					try {
-						UntypedResultSet result = QueryProcessor.process(query, ConsistencyLevel.ONE);
-						Iterator<UntypedResultSet.Row> iter = result.iterator();
-						while (iter.hasNext()) {
-							UntypedResultSet.Row row = iter.next();
-							ByteBuffer key = row.getBytes(originalCfPkName);
-							if (key != null) {
-								rm = new RowMutation(key, cf);
-							} else {
-								logger.warn("No new Partition key column available in temp table either");
-                                throw new MorphousException("No new Partition key column available in temp table either");
-							}
-						}
-					} catch (RequestExecutionException | RuntimeException e1) {
-//						throw new MorphousException("Failed to fall back for PartialUpdate", e1);
-                        logger.warn("Failed to fall back for PartialUpdate for query {} with exception {}", query, e1);
+                    RowMutation rm = null;
+                    try {
+                        totalRowCount++;
+                        rm = new RowMutation(Util.getKeyByteBufferForCf(cf), cf);
+                    } catch (PartialUpdateException e) {
+                        //					logger.warn("Partial update is currently not supported", e);
                         partialUpdateFailureCount++;
+                        //					continue;
 
-                        if (!reloaded) {
-                            originalCfs.reload();
-                            tempCfs.reload();
-                            reloaded = true;
+                        String query = String.format("SELECT %s FROM %s.%s WHERE %s = '%s';", originalCfPkName, keyspaceName, tempCfs.name, tempCfPkName, Util.toStringByteBuffer((ByteBuffer) tempKey.key.rewind()));
+                        logger.debug("Catchup select tempCFS partition key = {}", query);
+                        try {
+                            UntypedResultSet result = QueryProcessor.process(query, ConsistencyLevel.ONE);
+                            Iterator<UntypedResultSet.Row> iter = result.iterator();
+                            while (iter.hasNext()) {
+                                UntypedResultSet.Row row = iter.next();
+                                ByteBuffer key = row.getBytes(originalCfPkName);
+                                if (key != null) {
+                                    rm = new RowMutation(key, cf);
+                                } else {
+                                    logger.warn("No new Partition key column available in temp table either");
+                                    throw new MorphousException("No new Partition key column available in temp table either");
+                                }
+                            }
+                        } catch (RequestExecutionException | RuntimeException e1) {
+                            //						throw new MorphousException("Failed to fall back for PartialUpdate", e1);
+                            logger.warn("Failed to fall back for PartialUpdate for query {} with exception {}", query, e1);
+                            partialUpdateFailureCount++;
+
+                            if (!reloaded) {
+                                originalCfs.reload();
+                                tempCfs.reload();
+                                reloaded = true;
+                            }
+                            continue;
                         }
+                    }
+                    int destinationReplicaIndex;
+                    try {
+                        destinationReplicaIndex = Util.getReplicaIndexForKey(tempCfs.keyspace.getName(), tempKey.key);
+                    } catch (MorphousException e) {
+                        logger.error("error in getReplicasIndexForKey: cf={}, key={}");
+                        destinationReplicaIndexFindFailureCount++;
                         continue;
-					}
-				}
+                    }
 
-				int destinationReplicaIndex;
-				try {
-					destinationReplicaIndex = Util.getReplicaIndexForKey(tempCfs.keyspace.getName(), tempKey.key);
-				} catch (MorphousException e) {
-					logger.error("error in getReplicasIndexForKey: cf={}, key={}");
-					destinationReplicaIndexFindFailureCount++;
-					continue;
-				}
-
-                if (rm != null) {
-				    Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
-                    successfulRowCount++;
+                    if (rm != null) {
+                        Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
+                        successfulRowCount++;
+                    }
+                } finally {
+                    try {
+                        scanner.close();
+                    } catch (IOException e) {
+                        logger.error("Error during closing the Scanner.");
+                    }
                 }
 			}
 		}
