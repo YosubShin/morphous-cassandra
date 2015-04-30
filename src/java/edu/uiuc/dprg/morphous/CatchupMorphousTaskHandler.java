@@ -78,8 +78,8 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
 
 		for (SSTableReader sstable : sstables) {
 			SSTableScanner scanner = sstable.getScanner();
-			while (scanner.hasNext()) {
-                try {
+            try {
+                while (scanner.hasNext()) {
                     String originalCfPkName = Morphous.getPartitionKeyName(originalCfs);
                     String tempCfPkName = Morphous.getPartitionKeyName(tempCfs);
                     String keyspaceName = originalCfs.keyspace.getName();
@@ -145,14 +145,14 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
                         Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
                         successfulRowCount++;
                     }
-                } finally {
-                    try {
-                        scanner.close();
-                    } catch (IOException e) {
-                        logger.error("Error during closing the Scanner.");
-                    }
                 }
-			}
+            } finally {
+                try {
+                    scanner.close();
+                } catch (IOException e) {
+                    logger.error("Error during closing the Scanner.");
+                }
+            }
 		}
 		logger.info("Replayed for # of sstables={}, # of rows={}", sstableCount, successfulRowCount);
 		response.message = String.format("Replayed for # of sstables=%d. Out of total # of rows=%d, successfully updated # of rows=%d, # of failed partial updates=%d, # of failed destinationReplicas lookup=%d",
