@@ -59,7 +59,8 @@ public class AtomicSwitchMorphousTaskHandler implements MorphousTaskHandler {
 			tempCfs.reload();
 
             originalCfs.enableAutoCompaction();
-            tempCfs.enableAutoCompaction();
+            // Eanbling auto compaction for temp cf may cause race condition during catch up phase
+//            tempCfs.enableAutoCompaction();
 		} finally {
 			// Unblock local writes (does not affect other nodes in the cluster)
 			logger.info("Unlocking write lock for keyspace {}, column family {} since swapping of the table is over", task.keyspace, task.columnFamily);
