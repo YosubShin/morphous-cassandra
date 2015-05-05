@@ -29,12 +29,14 @@ public class CompactMorphousTaskHandler implements MorphousTaskHandler {
 		response.taskUuid = task.taskUuid;
 
 		ColumnFamilyStore originalCfs = Keyspace.open(task.keyspace).getColumnFamilyStore(task.columnFamily);
+        ColumnFamilyStore tempCfs = Keyspace.open(task.keyspace).getColumnFamilyStore(Morphous.tempColumnFamilyName(task.columnFamily));
+
+        originalCfs.disableAutoCompaction();
+        tempCfs.disableAutoCompaction();
 
         try {
             originalCfs.forceBlockingFlush();
             originalCfs.forceMajorCompaction();
-            // Disable compaction on original table, since we only want to catch up the SSTables modified after this moment.
-            originalCfs.disableAutoCompaction();
         } catch (Exception e) {
             logger.error("Error while compacting the node with exception {}", e);
             response.message = Throwables.getStackTraceAsString(e);

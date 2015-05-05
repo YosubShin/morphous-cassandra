@@ -52,6 +52,9 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
         replayRecentSstablesAtTempColumnFamily(originalCfs, tempCfs, task.taskStartedAtInMicro, response);
 
 		logger.debug("CatchupMorphousTask {} finished in {} ms, and generated response : {}", task, System.currentTimeMillis() - startAt, response);
+
+        // Restore the automatic compaction setting, for normal operations
+        originalCfs.enableAutoCompaction();
 		return response;
 	}
 
@@ -105,7 +108,7 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
                         //					continue;
 
                         String query = String.format("SELECT %s FROM %s.%s WHERE %s = '%s';", originalCfPkName, keyspaceName, tempCfs.name, tempCfPkName, Util.toStringByteBuffer((ByteBuffer) tempKey.key.rewind()));
-                        logger.debug("Catchup select tempCFS partition key = {}", query);
+//                        logger.debug("Catchup select tempCFS partition key = {}", query);
                         try {
                             UntypedResultSet result = QueryProcessor.process(query, ConsistencyLevel.ONE);
                             Iterator<UntypedResultSet.Row> iter = result.iterator();

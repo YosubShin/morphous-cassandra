@@ -62,15 +62,14 @@ public class Morphous {
                 logger.info("Starting morphous command for keyspace {}, column family {}, configuration {}", keyspace, columnFamily, config);
                 try {
                     createTempColumnFamily(keyspace, columnFamily, config.columnName);
+                    // Wait until the create table command propagates
+                    Thread.sleep(8000);
 
                     MorphousTask morphousTask = new MorphousTask();
                     if (config.shouldCompact) {
                         morphousTask.taskType = MorphousTaskType.COMPACT;
                         morphousTask.callback = getCompactMorphousTaskCallback();
                     } else {
-                        // Wait until the create table command propagates
-                        Thread.sleep(8000);
-
                         morphousTask.taskType = MorphousTaskType.INSERT;
                         morphousTask.callback = getInsertMorphousTaskCallback();
                     }

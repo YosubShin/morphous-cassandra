@@ -31,8 +31,13 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 		MorphousTaskResponse response = new MorphousTaskResponse();
 		response.status = MorphousTaskResponseStatus.SUCCESSFUL;
 		response.taskUuid = task.taskUuid;
-		
-		ColumnFamilyStore originalCfs = Keyspace.open(task.keyspace).getColumnFamilyStore(task.columnFamily); 
+
+		ColumnFamilyStore originalCfs = Keyspace.open(task.keyspace).getColumnFamilyStore(task.columnFamily);
+        ColumnFamilyStore tempCfs = Keyspace.open(task.keyspace).getColumnFamilyStore(Morphous.tempColumnFamilyName(task.columnFamily));
+
+        // In case CompactPhase does not exist, we need to disable automatic compactions during reconfiguration
+        originalCfs.disableAutoCompaction();
+        tempCfs.disableAutoCompaction();
 
         // Here, we are assuming that the cluster has gone through the major compaction
 		Collection<Range<Token>> ranges = StorageService.instance.getLocalRanges(task.keyspace);

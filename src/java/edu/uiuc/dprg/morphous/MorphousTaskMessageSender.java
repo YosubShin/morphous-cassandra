@@ -9,7 +9,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.Map.Entry;
 import org.apache.cassandra.db.TypeSizes;
+import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.gms.Gossiper;
+import org.apache.cassandra.gms.IFailureDetectionEventListener;
 import org.apache.cassandra.io.IVersionedSerializer;
 import org.apache.cassandra.net.IAsyncCallback;
 import org.apache.cassandra.net.IVerbHandler;
@@ -104,7 +106,9 @@ public class MorphousTaskMessageSender {
 						}
 					}).start();
 					return;
-				}	
+				} else {
+					handleNodeFailures(task.taskUuid);
+				}
 			}
 						
 			try {
@@ -122,7 +126,22 @@ public class MorphousTaskMessageSender {
 		}
 		
 	}
-	
+
+	private void handleNodeFailures(String taskUuid) {
+		MorphousTask task = morphousTaskMap.get(taskUuid);
+		if (task == null || !messageResponseMap.containsKey(task.taskUuid)) {
+			return;
+		} else {
+			for (Entry<InetAddress, MorphousTaskResponse> entry : messageResponseMap.get(task.taskUuid).entrySet()) {
+				MorphousTaskResponse value = entry.getValue();
+				if (value.status != MorphousTaskResponseStatus.SUCCESSFUL && value.status != MorphousTaskResponseStatus.NODE_FAILED && !FailureDetector.instance.isAlive(entry.getKey())) {
+					logger.debug("The node {} failed during reconfiguration task {}.", entry.getKey(), value);
+					value.status = MorphousTaskResponseStatus.NODE_FAILED;
+				}
+			}
+		}
+	}
+
 	public boolean isMorphousTaskOver(String taskUuid) {
 		MorphousTask task = morphousTaskMap.get(taskUuid);
 		if (task == null || !messageResponseMap.containsKey(task.taskUuid)) {
@@ -130,7 +149,7 @@ public class MorphousTaskMessageSender {
 		} else {
 			for (Entry<InetAddress, MorphousTaskResponse> entry : messageResponseMap.get(task.taskUuid).entrySet()) {
 				MorphousTaskResponse value = entry.getValue();
-				if (value.status != MorphousTaskResponseStatus.SUCCESSFUL) {
+				if (value.status != MorphousTaskResponseStatus.SUCCESSFUL && value.status != MorphousTaskResponseStatus.NODE_FAILED) {
 					logger.debug("Morphous Task is not over due to node : {}, task {}", entry.getKey(), value);
 					return false;
 				}
@@ -147,6 +166,7 @@ public class MorphousTaskMessageSender {
 		public String newPartitionKey;
 		public MorphousTaskCallback callback;
 		public Long taskStartedAtInMicro;
+        public boolean autoCompactionOn;
 		
 		public static final IVersionedSerializer<MorphousTask> serializer = new IVersionedSerializer<MorphousTaskMessageSender.MorphousTask>() {
 			
@@ -159,6 +179,7 @@ public class MorphousTaskMessageSender {
 				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.columnFamily));
 				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.newPartitionKey));
 				size += TypeSizes.NATIVE.sizeof(t.taskStartedAtInMicro);
+                size += TypeSizes.NATIVE.sizeof(t.autoCompactionOn);
 				return size;
 			}
 			
@@ -171,6 +192,7 @@ public class MorphousTaskMessageSender {
 				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.columnFamily), out);
 				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.newPartitionKey), out);
 				out.writeLong(t.taskStartedAtInMicro);
+                out.writeBoolean(t.autoCompactionOn);
 			}
 			
 			@Override
@@ -184,6 +206,7 @@ public class MorphousTaskMessageSender {
 				result.columnFamily = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
 				result.newPartitionKey = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
 				result.taskStartedAtInMicro = in.readLong();
+                result.autoCompactionOn = in.readBoolean();
 				
 				logger.debug("deserialized MorphousTask : {}", result);
 				return result;
@@ -276,6 +299,7 @@ public class MorphousTaskMessageSender {
 	public enum MorphousTaskResponseStatus {
 		SUCCESSFUL,
 		FAILED,
+		NODE_FAILED,
 		NULL;
 	}
 	
