@@ -44,8 +44,8 @@ public enum Stage
             case TRACING:
             case INTERNAL_RESPONSE:
             case MORPHOUS_TASK:
+            case MORPHOUS_MUTATION:
                 return "internal";
-            case MORPHOUS_MUTATION: // Since MorphousMutation is really just a wrapper around RowMutation, it should be under "request" ?
             case MUTATION:
             case READ:
             case REQUEST_RESPONSE:
