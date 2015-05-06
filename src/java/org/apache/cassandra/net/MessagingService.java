@@ -129,6 +129,7 @@ public final class MessagingService implements MessagingServiceMBean
         UNUSED_2,
         UNUSED_3,
         MORPHOUS_TASK,
+        MORPHUS_MUTATION
         ;
     }
 
@@ -180,6 +181,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.UNUSED_3, Stage.INTERNAL_RESPONSE);
         
         put(Verb.MORPHOUS_TASK, Stage.MORPHOUS_TASK);
+        put(Verb.MORPHUS_MUTATION, Stage.MORPHOUS_MUTATION);
     }};
 
     /**
@@ -216,6 +218,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.PAXOS_PROPOSE, Commit.serializer);
         put(Verb.PAXOS_COMMIT, Commit.serializer);
         put(Verb.MORPHOUS_TASK, MorphousTask.serializer);
+        put(Verb.MORPHUS_MUTATION, RowMutation.serializer);
     }};
 
     /**
@@ -240,6 +243,7 @@ public final class MessagingService implements MessagingServiceMBean
         put(Verb.PAXOS_PREPARE, PrepareResponse.serializer);
         put(Verb.PAXOS_PROPOSE, BooleanSerializer.serializer);
         put(Verb.MORPHOUS_TASK, MorphousTaskResponse.serializer);
+        put(Verb.MORPHUS_MUTATION, WriteResponse.serializer);
     }};
 
     /* This records all the results mapped by message Id */
@@ -561,7 +565,7 @@ public final class MessagingService implements MessagingServiceMBean
                            ConsistencyLevel consistencyLevel,
                            boolean allowHints)
     {
-        assert message.verb == Verb.MUTATION || message.verb == Verb.COUNTER_MUTATION;
+        assert message.verb == Verb.MUTATION || message.verb == Verb.COUNTER_MUTATION || message.verb == Verb.MORPHUS_MUTATION;
         int messageId = nextId();
         CallbackInfo previous = callbacks.put(messageId,
                                               new WriteCallbackInfo(to,
@@ -728,6 +732,8 @@ public final class MessagingService implements MessagingServiceMBean
         TracingAwareExecutorService stage = StageManager.getStage(message.getMessageType());
         assert stage != null : "No stage for message type " + message.verb;
 
+        if (state != null)
+            state.trace("About to execute message of type {}", message.getMessageType());
         stage.execute(runnable, state);
     }
 

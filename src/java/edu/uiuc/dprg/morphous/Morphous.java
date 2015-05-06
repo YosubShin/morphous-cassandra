@@ -331,7 +331,7 @@ public class Morphous {
 	 */
 	public static void sendRowMutationToNthReplicaNode(RowMutation rm, int n) {
 		InetAddress destinationNode = edu.uiuc.dprg.morphous.Util.getNthReplicaNodeForKey(rm.getKeyspaceName(), rm.key(), n);
-		MessageOut<RowMutation> message = rm.createMessage();
+		MessageOut<RowMutation> message = rm.createMessage(MessagingService.Verb.MORPHUS_MUTATION);
 		WriteResponseHandler handler = new WriteResponseHandler(Collections.singletonList(destinationNode), Collections.<InetAddress> emptyList(), ConsistencyLevel.ONE, Keyspace.open(rm.getKeyspaceName()), null, WriteType.SIMPLE);
 		MessagingService.instance().sendRR(message, destinationNode, handler, false); //TODO Maybe use more robust way to send message
 	}

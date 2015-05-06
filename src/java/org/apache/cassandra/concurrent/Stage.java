@@ -30,7 +30,8 @@ public enum Stage
     INTERNAL_RESPONSE,
     READ_REPAIR,
     REPLICATE_ON_WRITE,
-    MORPHOUS_TASK;
+    MORPHOUS_TASK,
+    MORPHOUS_MUTATION;
 
     public String getJmxType()
     {

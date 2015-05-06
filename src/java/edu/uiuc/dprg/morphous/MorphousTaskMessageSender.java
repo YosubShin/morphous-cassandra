@@ -8,6 +8,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.Map.Entry;
+
+import org.apache.cassandra.db.RowMutation;
+import org.apache.cassandra.db.RowMutationVerbHandler;
 import org.apache.cassandra.db.TypeSizes;
 import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.gms.Gossiper;
@@ -19,6 +22,8 @@ import org.apache.cassandra.net.MessageIn;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.net.MessagingService.Verb;
+import org.apache.cassandra.tracing.TraceState;
+import org.apache.cassandra.tracing.Tracing;
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -345,6 +350,17 @@ public class MorphousTaskMessageSender {
 			MessagingService.instance().sendReply(responseMessage, id, message.from);
 		}
 		
+	}
+
+	public static class MorphusMutationVerbHandler extends RowMutationVerbHandler {
+		@Override
+		public void doVerb(MessageIn<RowMutation> message, int id) {
+			TraceState state = Tracing.instance.initializeFromMessage(message);
+			if (state != null) {
+				state.trace("Handling Morphus Mutation from {}", message.from);
+			}
+			super.doVerb(message, id);
+		}
 	}
 	
 	
