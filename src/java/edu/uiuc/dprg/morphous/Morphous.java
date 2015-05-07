@@ -28,15 +28,20 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * Created by Daniel on 6/9/14.
  */
 public class Morphous {
-    public static final int numConcurrentMigrationThreads = 8;
+    public static final int numConcurrentMorphusMutationHandlerThreads = 8;
+    private static final int numConcurrentRowMutationSenderThreads = 8;
     private static Morphous instance = new Morphous();
     private static final Logger logger = LoggerFactory.getLogger(Morphous.class);
+    private static ExecutorService executor = Executors.newFixedThreadPool(numConcurrentRowMutationSenderThreads);
 
     public MorphousConfiguration configuration;
 
@@ -332,18 +337,23 @@ public class Morphous {
 	 * @param rm
 	 * @param n one-based number that represents what replication order it has
 	 */
-	public static void sendRowMutationToNthReplicaNode(RowMutation rm, int n) {
-		InetAddress destinationNode = edu.uiuc.dprg.morphous.Util.getNthReplicaNodeForKey(rm.getKeyspaceName(), rm.key(), n);
-        if (FailureDetector.instance.isAlive(destinationNode)) {
-            MessageOut<RowMutation> message = rm.createMessage(MessagingService.Verb.MORPHUS_MUTATION);
-            WriteResponseHandler handler = new WriteResponseHandler(Collections.singletonList(destinationNode), Collections.<InetAddress> emptyList(), ConsistencyLevel.ONE, Keyspace.open(rm.getKeyspaceName()), null, WriteType.SIMPLE);
-            MessagingService.instance().sendRR(message, destinationNode, handler, false); //TODO Maybe use more robust way to send message
-            try {
-                handler.get();
-            } catch (WriteTimeoutException e) {
-                logger.warn("Write timeout exception for Morphus RowMutation {}", rm);
+	public static void sendRowMutationToNthReplicaNode(final RowMutation rm, final int n) {
+        executor.submit(new WrappedRunnable() {
+            @Override
+            protected void runMayThrow() throws Exception {
+                InetAddress destinationNode = edu.uiuc.dprg.morphous.Util.getNthReplicaNodeForKey(rm.getKeyspaceName(), rm.key(), n);
+                if (FailureDetector.instance.isAlive(destinationNode)) {
+                    MessageOut<RowMutation> message = rm.createMessage(MessagingService.Verb.MORPHUS_MUTATION);
+                    WriteResponseHandler handler = new WriteResponseHandler(Collections.singletonList(destinationNode), Collections.<InetAddress> emptyList(), ConsistencyLevel.ONE, Keyspace.open(rm.getKeyspaceName()), null, WriteType.SIMPLE);
+                    MessagingService.instance().sendRR(message, destinationNode, handler, false); //TODO Maybe use more robust way to send message
+                    try {
+                        handler.get();
+                    } catch (WriteTimeoutException e) {
+                        logger.warn("Write timeout exception for Morphus RowMutation {}", rm);
+                    }
+                }
             }
-        }
+        });
     }
 
 	public static class MorphousConfiguration {

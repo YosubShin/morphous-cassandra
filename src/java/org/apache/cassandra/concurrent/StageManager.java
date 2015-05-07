@@ -61,7 +61,7 @@ public class StageManager
         stages.put(Stage.READ_REPAIR, multiThreadedStage(Stage.READ_REPAIR, FBUtilities.getAvailableProcessors()));
         stages.put(Stage.TRACING, tracingExecutor());
         stages.put(Stage.MORPHOUS_TASK, new JMXEnabledThreadPoolExecutor(Stage.MORPHOUS_TASK));
-        stages.put(Stage.MORPHOUS_MUTATION, multiThreadedConfigurableStage(Stage.MORPHOUS_MUTATION, Morphous.numConcurrentMigrationThreads));
+        stages.put(Stage.MORPHOUS_MUTATION, multiThreadedConfigurableStage(Stage.MORPHOUS_MUTATION, Morphous.numConcurrentMorphusMutationHandlerThreads));
     }
 
     private static ExecuteOnlyExecutor tracingExecutor()
