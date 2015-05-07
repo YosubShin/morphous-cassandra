@@ -28,10 +28,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.util.Collections;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.FutureTask;
-import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.*;
 
 /**
  * Created by Daniel on 6/9/14.
@@ -41,7 +38,11 @@ public class Morphous {
     private static final int numConcurrentRowMutationSenderThreads = 8;
     private static Morphous instance = new Morphous();
     private static final Logger logger = LoggerFactory.getLogger(Morphous.class);
-    private static ExecutorService executor = Executors.newFixedThreadPool(numConcurrentRowMutationSenderThreads);
+
+    private static BlockingQueue<Runnable> blockingQueue = new ArrayBlockingQueue<Runnable>(numConcurrentRowMutationSenderThreads);
+    private static RejectedExecutionHandler rejectedExecutionHandler = new ThreadPoolExecutor.CallerRunsPolicy();
+    private static ExecutorService executor =  new ThreadPoolExecutor(numConcurrentRowMutationSenderThreads, numConcurrentRowMutationSenderThreads,
+            0L, TimeUnit.MILLISECONDS, blockingQueue, rejectedExecutionHandler);
 
     public MorphousConfiguration configuration;
 
