@@ -83,6 +83,7 @@ public class Morphous {
                     morphousTask.columnFamily = columnFamily;
                     morphousTask.newPartitionKey = config.columnName;
                     morphousTask.taskStartedAtInMicro = System.currentTimeMillis() * 1000;
+                    morphousTask.numConcurrentRowMutationSenderThreads = config.numMorphusMutationSenderThreads;
                     MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(morphousTask);
                 } catch(Exception e) {
                     logger.error("Execption occurred {}", e);
