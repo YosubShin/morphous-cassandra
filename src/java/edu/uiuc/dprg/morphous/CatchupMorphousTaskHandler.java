@@ -145,7 +145,7 @@ public class CatchupMorphousTaskHandler implements MorphousTaskHandler {
                     }
 
                     if (rm != null) {
-                        Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
+                        Morphous.instance().sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
                         successfulRowCount++;
                     }
                 }

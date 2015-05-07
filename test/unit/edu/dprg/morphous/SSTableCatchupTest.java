@@ -145,7 +145,7 @@ public class SSTableCatchupTest extends CqlTestBase {
         	
         	RowMutation rm = new RowMutation(edu.uiuc.dprg.morphous.Util.getKeyByteBufferForCf(cf), cf);
         	
-        	Morphous.sendRowMutationToNthReplicaNode(rm, edu.uiuc.dprg.morphous.Util.getReplicaIndexForKey(ksName, originalKey.key) + 1);
+        	Morphous.instance().sendRowMutationToNthReplicaNode(rm, edu.uiuc.dprg.morphous.Util.getReplicaIndexForKey(ksName, originalKey.key) + 1);
         }
         
         for (int j = 0; j < 100; j++) {

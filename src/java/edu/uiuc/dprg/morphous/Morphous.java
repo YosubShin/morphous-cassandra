@@ -34,15 +34,12 @@ import java.util.concurrent.*;
  * Created by Daniel on 6/9/14.
  */
 public class Morphous {
-    public static final int numConcurrentMorphusMutationHandlerThreads = 8;
-    private static final int numConcurrentRowMutationSenderThreads = 8;
+    public static final int numConcurrentMorphusMutationHandlerThreads = 32;
     private static Morphous instance = new Morphous();
     private static final Logger logger = LoggerFactory.getLogger(Morphous.class);
 
-    private static BlockingQueue<Runnable> blockingQueue = new ArrayBlockingQueue<Runnable>(numConcurrentRowMutationSenderThreads);
-    private static RejectedExecutionHandler rejectedExecutionHandler = new ThreadPoolExecutor.CallerRunsPolicy();
-    private static ExecutorService executor =  new ThreadPoolExecutor(numConcurrentRowMutationSenderThreads, numConcurrentRowMutationSenderThreads,
-            0L, TimeUnit.MILLISECONDS, blockingQueue, rejectedExecutionHandler);
+    private int numConcurrentRowMutationSenderThreads = 8;
+    private ExecutorService executor;
 
     public MorphousConfiguration configuration;
 
@@ -252,9 +249,11 @@ public class Morphous {
             JSONObject json = (JSONObject) new JSONParser().parse(configString);
             String columnName = (String) json.get("column");
             boolean shouldCompact = Boolean.parseBoolean((String) json.get("compact"));
+            int numMorphusMutationSenderThreads = Integer.parseInt((String) json.get("numMorphusMutationSenderThreads"));
 
             config.columnName = columnName;
             config.shouldCompact = shouldCompact;
+            config.numMorphusMutationSenderThreads = numMorphusMutationSenderThreads;
         } catch (ParseException e) {
             throw new RuntimeException(e);
         }
@@ -338,14 +337,14 @@ public class Morphous {
 	 * @param rm
 	 * @param n one-based number that represents what replication order it has
 	 */
-	public static void sendRowMutationToNthReplicaNode(final RowMutation rm, final int n) {
-        executor.submit(new WrappedRunnable() {
+	public void sendRowMutationToNthReplicaNode(final RowMutation rm, final int n) {
+        getExecutor().submit(new WrappedRunnable() {
             @Override
             protected void runMayThrow() throws Exception {
                 InetAddress destinationNode = edu.uiuc.dprg.morphous.Util.getNthReplicaNodeForKey(rm.getKeyspaceName(), rm.key(), n);
                 if (FailureDetector.instance.isAlive(destinationNode)) {
                     MessageOut<RowMutation> message = rm.createMessage(MessagingService.Verb.MORPHUS_MUTATION);
-                    WriteResponseHandler handler = new WriteResponseHandler(Collections.singletonList(destinationNode), Collections.<InetAddress> emptyList(), ConsistencyLevel.ONE, Keyspace.open(rm.getKeyspaceName()), null, WriteType.SIMPLE);
+                    WriteResponseHandler handler = new WriteResponseHandler(Collections.singletonList(destinationNode), Collections.<InetAddress>emptyList(), ConsistencyLevel.ONE, Keyspace.open(rm.getKeyspaceName()), null, WriteType.SIMPLE);
                     MessagingService.instance().sendRR(message, destinationNode, handler, false); //TODO Maybe use more robust way to send message
                     try {
                         handler.get();
@@ -360,13 +359,29 @@ public class Morphous {
 	public static class MorphousConfiguration {
         public String columnName;
         public boolean shouldCompact;
+        public int numMorphusMutationSenderThreads;
 
         @Override
         public String toString() {
             return "MorphousConfiguration{" +
                     "columnName='" + columnName + '\'' +
                     ", shouldCompact=" + shouldCompact +
+                    ", numMorphusMutationSenderThreads=" + numMorphusMutationSenderThreads +
                     '}';
         }
+    }
+
+    public ExecutorService getExecutor() {
+        if (executor == null) {
+            BlockingQueue<Runnable> blockingQueue = new ArrayBlockingQueue<Runnable>(numConcurrentRowMutationSenderThreads);
+            RejectedExecutionHandler rejectedExecutionHandler = new ThreadPoolExecutor.CallerRunsPolicy();
+            executor =  new ThreadPoolExecutor(numConcurrentRowMutationSenderThreads, numConcurrentRowMutationSenderThreads,
+                    0L, TimeUnit.MILLISECONDS, blockingQueue, rejectedExecutionHandler);
+        }
+        return executor;
+    }
+
+    public void updateNumConcurrentRowMutationSenderThreads(int numConcurrentRowMutationSenderThreads) {
+        this.numConcurrentRowMutationSenderThreads = numConcurrentRowMutationSenderThreads;
     }
 }

@@ -39,6 +39,9 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
         originalCfs.disableAutoCompaction();
         tempCfs.disableAutoCompaction();
 
+		// Before sending any ranges, set up number of threads for Morphus mutation sender
+		Morphous.instance().updateNumConcurrentRowMutationSenderThreads(task.numConcurrentRowMutationSenderThreads);
+
         // Here, we are assuming that the cluster has gone through the major compaction
 		Collection<Range<Token>> ranges = StorageService.instance.getLocalRanges(task.keyspace);
 		try {
@@ -98,7 +101,7 @@ public class InsertMorphousTaskHandler implements MorphousTaskHandler {
 				RowMutation rm = new RowMutation(newKey, tempData);
 				
 				int destinationReplicaIndex =  edu.uiuc.dprg.morphous.Util.getReplicaIndexForKey(ksName, row.key.key);
-				Morphous.sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
+				Morphous.instance().sendRowMutationToNthReplicaNode(rm, destinationReplicaIndex + 1);
                 count++;
 				try {
 					if (throttleMillis > 0) {

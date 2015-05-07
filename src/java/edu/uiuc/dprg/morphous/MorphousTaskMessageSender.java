@@ -172,6 +172,7 @@ public class MorphousTaskMessageSender {
 		public MorphousTaskCallback callback;
 		public Long taskStartedAtInMicro;
         public boolean autoCompactionOn;
+		public int numConcurrentRowMutationSenderThreads;
 		
 		public static final IVersionedSerializer<MorphousTask> serializer = new IVersionedSerializer<MorphousTaskMessageSender.MorphousTask>() {
 			
@@ -185,6 +186,7 @@ public class MorphousTaskMessageSender {
 				size += TypeSizes.NATIVE.sizeofWithShortLength(ByteBufferUtil.bytes(t.newPartitionKey));
 				size += TypeSizes.NATIVE.sizeof(t.taskStartedAtInMicro);
                 size += TypeSizes.NATIVE.sizeof(t.autoCompactionOn);
+				size += TypeSizes.NATIVE.sizeof(t.numConcurrentRowMutationSenderThreads);
 				return size;
 			}
 			
@@ -198,6 +200,7 @@ public class MorphousTaskMessageSender {
 				ByteBufferUtil.writeWithShortLength(ByteBufferUtil.bytes(t.newPartitionKey), out);
 				out.writeLong(t.taskStartedAtInMicro);
                 out.writeBoolean(t.autoCompactionOn);
+				out.writeInt(t.numConcurrentRowMutationSenderThreads);
 			}
 			
 			@Override
@@ -212,6 +215,7 @@ public class MorphousTaskMessageSender {
 				result.newPartitionKey = ByteBufferUtil.string(ByteBufferUtil.readWithShortLength(in));
 				result.taskStartedAtInMicro = in.readLong();
                 result.autoCompactionOn = in.readBoolean();
+				result.numConcurrentRowMutationSenderThreads = in.readInt();
 				
 				logger.debug("deserialized MorphousTask : {}", result);
 				return result;
