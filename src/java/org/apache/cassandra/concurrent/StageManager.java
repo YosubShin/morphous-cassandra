@@ -20,6 +20,7 @@ package org.apache.cassandra.concurrent;
 import java.util.EnumMap;
 import java.util.concurrent.*;
 
+import edu.uiuc.dprg.morphous.Morphous;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,7 +61,7 @@ public class StageManager
         stages.put(Stage.READ_REPAIR, multiThreadedStage(Stage.READ_REPAIR, FBUtilities.getAvailableProcessors()));
         stages.put(Stage.TRACING, tracingExecutor());
         stages.put(Stage.MORPHOUS_TASK, new JMXEnabledThreadPoolExecutor(Stage.MORPHOUS_TASK));
-        stages.put(Stage.MORPHOUS_MUTATION, new JMXEnabledThreadPoolExecutor(Stage.MORPHOUS_MUTATION));
+        stages.put(Stage.MORPHOUS_MUTATION, multiThreadedConfigurableStage(Stage.MORPHOUS_MUTATION, Morphous.numConcurrentMigrationThreads));
     }
 
     private static ExecuteOnlyExecutor tracingExecutor()

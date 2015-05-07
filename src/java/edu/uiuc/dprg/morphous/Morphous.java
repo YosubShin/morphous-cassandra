@@ -32,6 +32,7 @@ import java.util.concurrent.FutureTask;
  * Created by Daniel on 6/9/14.
  */
 public class Morphous {
+    public static final int numConcurrentMigrationThreads = 8;
     private static Morphous instance = new Morphous();
     private static final Logger logger = LoggerFactory.getLogger(Morphous.class);
 
