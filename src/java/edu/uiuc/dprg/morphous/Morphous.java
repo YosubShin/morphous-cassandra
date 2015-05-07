@@ -8,6 +8,8 @@ import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
 import org.apache.cassandra.db.*;
 import org.apache.cassandra.exceptions.ConfigurationException;
+import org.apache.cassandra.exceptions.WriteTimeoutException;
+import org.apache.cassandra.gms.FailureDetector;
 import org.apache.cassandra.net.MessageOut;
 import org.apache.cassandra.net.MessagingService;
 import org.apache.cassandra.service.MigrationManager;
@@ -332,10 +334,17 @@ public class Morphous {
 	 */
 	public static void sendRowMutationToNthReplicaNode(RowMutation rm, int n) {
 		InetAddress destinationNode = edu.uiuc.dprg.morphous.Util.getNthReplicaNodeForKey(rm.getKeyspaceName(), rm.key(), n);
-		MessageOut<RowMutation> message = rm.createMessage(MessagingService.Verb.MORPHUS_MUTATION);
-		WriteResponseHandler handler = new WriteResponseHandler(Collections.singletonList(destinationNode), Collections.<InetAddress> emptyList(), ConsistencyLevel.ONE, Keyspace.open(rm.getKeyspaceName()), null, WriteType.SIMPLE);
-		MessagingService.instance().sendRR(message, destinationNode, handler, false); //TODO Maybe use more robust way to send message
-	}
+        if (FailureDetector.instance.isAlive(destinationNode)) {
+            MessageOut<RowMutation> message = rm.createMessage(MessagingService.Verb.MORPHUS_MUTATION);
+            WriteResponseHandler handler = new WriteResponseHandler(Collections.singletonList(destinationNode), Collections.<InetAddress> emptyList(), ConsistencyLevel.ONE, Keyspace.open(rm.getKeyspaceName()), null, WriteType.SIMPLE);
+            MessagingService.instance().sendRR(message, destinationNode, handler, false); //TODO Maybe use more robust way to send message
+            try {
+                handler.get();
+            } catch (WriteTimeoutException e) {
+                logger.warn("Write timeout exception for Morphus RowMutation {}", rm);
+            }
+        }
+    }
 
 	public static class MorphousConfiguration {
         public String columnName;
