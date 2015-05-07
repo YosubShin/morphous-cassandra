@@ -246,10 +246,17 @@ public class MorphousTaskMessageSender {
 
 		@Override
 		public String toString() {
-			return "MorphousTask [taskUuid=" + taskUuid + ", taskType="
-					+ taskType + ", keyspace=" + keyspace + ", columnFamily="
-					+ columnFamily 
-					+ ", newPartitionKey=" + newPartitionKey + "]";
+			return "MorphousTask{" +
+					"taskUuid='" + taskUuid + '\'' +
+					", taskType=" + taskType +
+					", keyspace='" + keyspace + '\'' +
+					", columnFamily='" + columnFamily + '\'' +
+					", newPartitionKey='" + newPartitionKey + '\'' +
+					", callback=" + callback +
+					", taskStartedAtInMicro=" + taskStartedAtInMicro +
+					", autoCompactionOn=" + autoCompactionOn +
+					", numConcurrentRowMutationSenderThreads=" + numConcurrentRowMutationSenderThreads +
+					'}';
 		}
 	}
 	

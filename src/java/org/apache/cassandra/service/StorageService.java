@@ -3989,6 +3989,7 @@ public class StorageService extends NotificationBroadcasterSupport implements IE
 
         Morphous.MorphousConfiguration morphousConfiguration = Morphous.instance().parseMorphousConfiguration(morphousOptions);
         Morphous.instance().configuration = morphousConfiguration;
+        logger.debug("Morphus Configuration: {}", morphousConfiguration);
         new Thread(Morphous.instance().createAsyncMorphousTask(keyspace, columnFamilies[0], morphousConfiguration)).start();
     }
 }
