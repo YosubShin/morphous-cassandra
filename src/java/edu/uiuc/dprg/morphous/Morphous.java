@@ -62,6 +62,8 @@ public class Morphous {
         startTimestamp = System.currentTimeMillis(); // Record start time
         logger.info("MorphusTimestamp: MorphusStartAt {}", startTimestamp);
         logger.debug("Creating a morphous task with keyspace={}, columnFamily={}, configuration={}", keyspace, columnFamily, config);
+        updateNumConcurrentRowMutationSenderThreads(config.numMorphusMutationSenderThreads);
+
         return new FutureTask<Object>(new WrappedRunnable() {
             @Override
             protected void runMayThrow() throws Exception {
@@ -83,7 +85,7 @@ public class Morphous {
                     morphousTask.columnFamily = columnFamily;
                     morphousTask.newPartitionKey = config.columnName;
                     morphousTask.taskStartedAtInMicro = System.currentTimeMillis() * 1000;
-                    morphousTask.numConcurrentRowMutationSenderThreads = config.numMorphusMutationSenderThreads;
+                    morphousTask.numConcurrentRowMutationSenderThreads = Morphous.instance().numConcurrentRowMutationSenderThreads;
                     MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(morphousTask);
                 } catch(Exception e) {
                     logger.error("Execption occurred {}", e);
@@ -111,6 +113,7 @@ public class Morphous {
                     morphousTask.newPartitionKey = task.newPartitionKey;
                     morphousTask.callback = getInsertMorphousTaskCallback();
                     morphousTask.taskStartedAtInMicro = task.taskStartedAtInMicro;
+                    morphousTask.numConcurrentRowMutationSenderThreads = Morphous.instance().numConcurrentRowMutationSenderThreads;
                     MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(morphousTask);
                 } catch(Exception e) {
                     logger.error("Execption occurred {}", e);
@@ -155,6 +158,7 @@ public class Morphous {
             	newMorphousTask.newPartitionKey = task.newPartitionKey;
             	newMorphousTask.callback = getAtomicSwitchMorphousTaskCallback();
             	newMorphousTask.taskStartedAtInMicro = task.taskStartedAtInMicro;
+                newMorphousTask.numConcurrentRowMutationSenderThreads = Morphous.instance().numConcurrentRowMutationSenderThreads;
             	
             	Keyspace keyspace = Keyspace.open(task.keyspace);
         		ColumnFamilyStore originalCfs = keyspace.getColumnFamilyStore(task.columnFamily);
@@ -188,6 +192,7 @@ public class Morphous {
                 newMorphousTask.newPartitionKey = task.newPartitionKey;
                 newMorphousTask.callback = getCatchupMorphousTaskCallback();
                 newMorphousTask.taskStartedAtInMicro = task.taskStartedAtInMicro;
+                newMorphousTask.numConcurrentRowMutationSenderThreads = Morphous.instance().numConcurrentRowMutationSenderThreads;
 
                 MorphousTaskMessageSender.instance().sendMorphousTaskToAllEndpoints(newMorphousTask);
             }
