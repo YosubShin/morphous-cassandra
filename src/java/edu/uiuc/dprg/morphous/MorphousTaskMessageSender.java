@@ -229,7 +229,7 @@ public class MorphousTaskMessageSender {
 		public void taskIsDone(Map<InetAddress, MorphousTaskResponse> responses) {
 			for (Entry<InetAddress, MorphousTaskResponse> entry : responses.entrySet()) {
 				MorphousTaskResponse response = entry.getValue();
-				assert response.status == MorphousTaskResponseStatus.SUCCESSFUL : "MorphousTaskResponse from " + entry.getKey() + " is not successful";
+				assert response.status == MorphousTaskResponseStatus.SUCCESSFUL || response.status == MorphousTaskResponseStatus.NODE_FAILED : "MorphousTaskResponse from " + entry.getKey() + " is not successful";
 			}
 			if (this.callback != null) {
 				logger.info("MorphousTask {} is done, now executing callback", this);
